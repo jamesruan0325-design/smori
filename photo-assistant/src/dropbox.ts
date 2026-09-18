@@ -113,7 +113,7 @@ interface ListResult { entries: ({ '.tag': string } & Partial<DropboxFile>)[]; c
 
 const stateFile = () => path.join(config.dataDir, 'auto', 'dropbox-state.json');
 
-export interface DropboxState { cursor?: string; lastRun?: string; folder?: string; nsid?: string; seen: Record<string, string> }
+export interface DropboxState { cursor?: string; lastRun?: string; folder?: string; nsid?: string; seen: Record<string, string>; pending?: Record<string, DropboxFile> }
 
 export async function readState(): Promise<DropboxState> {
   try { return JSON.parse(await fs.readFile(stateFile(), 'utf8')); } catch { return { seen: {} }; }
@@ -221,14 +221,24 @@ export async function listNewFiles(opts: { fromScratch?: boolean } = {}, fetchIm
     if (!result.has_more) break;
     result = await rpc<ListResult>('files/list_folder/continue', { cursor: result.cursor }, fetchImpl, nsid);
   }
+  // files that failed in an earlier cycle are retried first
+  for (const f of Object.values(state.pending ?? {})) if (!state.seen[f.path_lower] && !files.some((x) => x.path_lower === f.path_lower)) files.unshift(f);
   state.lastRun = new Date().toISOString();
   await writeState(state);
   return files;
 }
 
+export async function markPending(file: DropboxFile): Promise<void> {
+  const s = await readState();
+  s.pending = s.pending ?? {};
+  s.pending[file.path_lower] = file;
+  await writeState(s);
+}
+
 export async function markSeen(pathLower: string, status: string): Promise<void> {
   const s = await readState();
   s.seen[pathLower] = `${status}@${new Date().toISOString()}`;
+  if (s.pending) delete s.pending[pathLower];
   await writeState(s);
 }
 

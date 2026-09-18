@@ -250,6 +250,7 @@ export async function runAutoCycle(deps: AutoDeps = defaultDeps, opts: { fromScr
           if (r.action === 'added') report.added++; else report.discarded++;
         } catch (e) {
           report.errors.push(`${f.name}: ${(e as Error).message}`);
+          await dropbox.markPending(f);
           await log('ingest.error', { name: f.name, error: (e as Error).message });
         }
       }
