@@ -12,7 +12,7 @@ import { handleWebhook } from './webhooks.js';
 import { getSession } from './tokens.js';
 import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConfigured, dropboxConnected, dropboxAccount, readState as dropboxState } from './dropbox.js';
 import { approveAndPublish, finalizeProject, ingestPhoto, readLog, runAutoCycle, startScheduler } from './auto.js';
-import { notifyConfigured } from './notify.js';
+import { notifyConfigured, sendNtfy } from './notify.js';
 import { claudeConfigured } from './copy.js';
 import { runGenerate, runSaveDraft, buildMetaobjectFields } from './pipeline.js';
 import { createProject, deletePhotoFiles, getProject, listProjects, photoPath, saveProject, type ProjectFacts } from './store.js';
@@ -136,6 +136,7 @@ app.post('/api/setup', wrap(async (_req, res) => {
 app.get('/connect/dropbox', (req, res) => beginDropboxAuth(req, res));
 app.post('/api/dropbox/disconnect', wrap(async (_req, res) => { await disconnectDropbox(); res.json({ ok: true }); }));
 app.post('/api/auto/run', wrap(async (req, res) => { res.json(await runAutoCycle(undefined, { fromScratch: Boolean(req.body?.fromScratch) })); }));
+app.post('/api/notify/test', wrap(async (_req, res) => { res.json(await sendNtfy('SMORI 照片助手测试', `测试通知 ${new Date().toLocaleString('zh-CN', { timeZone: config.timezone })}`, config.appUrl)); }));
 app.get('/api/auto/log', wrap(async (_req, res) => { res.json({ lines: (await readLog(150)).map((l) => JSON.parse(l)) }); }));
 app.post('/api/projects/:id/finalize', wrap(async (req, res) => { res.json(await finalizeProject(param(req, 'id'), undefined, { force: true })); }));
 app.post('/api/projects/:id/publish', wrap(async (req, res) => { res.json(await approveAndPublish(param(req, 'id'), { regenerate: Boolean(req.body?.regenerate) })); }));

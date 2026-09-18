@@ -93,7 +93,8 @@ async function loadHealth() {
     (health.dropbox.configured && !health.dropbox.connected ? '<a class="btn small" href="/connect/dropbox">连接 Dropbox</a>' : '') +
     (health.dropbox.connected ? ` <button class="btn small" onclick="autoRun()">立即同步</button> <button class="btn small" onclick="if(confirm('断开后不再自动导入，确定？')) api('/api/dropbox/disconnect',{method:'POST'}).then(loadHealth)">断开</button>` : '') +
     ` &nbsp;|&nbsp; 自动流水线: <b class="${health.auto.enabled?'ok':'warn'}">${health.auto.enabled ? `每 ${health.auto.pollMinutes} 分钟，把握度 ≥ ${Math.round(health.auto.publishConfidence*100)}% 自动发布` : '已关闭'}</b>` +
-    ` &nbsp;|&nbsp; 通知: <b class="${health.auto.notify?'ok':'warn'}">${health.auto.notify ? 'ntfy 已配置' : '未配置 NTFY_TOPIC'}</b>`;
+    ` &nbsp;|&nbsp; 通知: <b class="${health.auto.notify?'ok':'warn'}">${health.auto.notify ? 'ntfy 已配置' : '未配置 NTFY_TOPIC'}</b>` +
+    (health.auto.notify ? ` <button class="btn small" onclick="api('/api/notify/test',{method:'POST',body:{}}).then(r=>alert('已发送，消息 ID '+r.id+'。手机几秒内应收到。')).catch(e=>alert('发送失败：'+e.message))">发送测试通知</button>` : '');
 }
 async function autoRun() { try { const r = await api('/api/auto/run', {method:'POST', body:{}}); alert(`同步完成：新照片 ${r.pulled}，加入案例 ${r.added}，丢弃 ${r.discarded}，完成案例 ${r.finalized.length}${r.errors.length ? '\n错误：' + r.errors.join('\n') : ''}`); loadHealth(); loadProjects(); if (current) openProject(current.id); } catch (e) { alert(e.message); } }
 const AUTO_LABEL = { collecting: '收集中', processing: '处理中', review: '待确认', published: '已发布', error: '出错' };
