@@ -11,13 +11,21 @@ primary_region = "lax"
   SHOPIFY_APP_URL = "https://smori-photo-assistant.fly.dev"
   SHOPIFY_SHOP = "smori-9216.myshopify.com"
   SHOPIFY_API_VERSION = "2026-07"
+  DROPBOX_FOLDER = "/Camera Uploads"
+  AUTO_ENABLED = "true"
+  AUTO_POLL_MINUTES = "10"
+  AUTO_PUBLISH_CONFIDENCE = "0.8"
+  PROJECT_CLOSE_HOURS = "6"
+  TIMEZONE = "America/Los_Angeles"
+  CLAUDE_SCREEN_MODEL = "claude-sonnet-5"
+  NTFY_SERVER = "https://ntfy.sh"
 
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = "off"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [[http_service.checks]]
     interval = "30s"

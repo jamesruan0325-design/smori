@@ -27,8 +27,37 @@ export interface Photo {
   cover: boolean;
   caption?: string;
   caption_zh?: string;
+  takenAt?: string;
+  lat?: number;
+  lng?: number;
+  source?: string;
+  screen?: PhotoScreen;
   shopifyFileId?: string;
   shopifyUrl?: string;
+}
+
+export interface PhotoScreen {
+  is_installation: boolean;
+  installation_confidence: number;
+  product: string;          // one of PRODUCTS names, 'shutters', 'other' or 'unknown'
+  product_confidence: number;
+  category: string;
+  room: string;
+  room_zh: string;
+  notes: string;
+}
+
+export interface AutoInfo {
+  source: 'dropbox' | 'inbox';
+  status: 'collecting' | 'processing' | 'review' | 'published' | 'error';
+  confidence?: number;          // overall product confidence 0-1
+  votes?: Record<string, number>;
+  lastTakenAt?: string;
+  lastIngestAt?: string;
+  finalizedAt?: string;
+  reason?: string;              // why it needs review / what happened
+  error?: string;
+  attempts?: number;
 }
 
 export interface CopyBlock {
@@ -72,6 +101,7 @@ export interface Project {
   photos: Photo[];
   copy?: GeneratedCopy;
   shopify?: ShopifyResult;
+  auto?: AutoInfo;
 }
 
 export const projectsDir = () => path.join(config.dataDir, 'projects');

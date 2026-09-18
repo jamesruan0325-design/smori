@@ -3,7 +3,7 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import { config, CATEGORIES, PRODUCTS } from './config.js';
 import { forClaude } from './images.js';
-import { photoPath, type Project, type GeneratedCopy } from './store.js';
+import { photoPath, type Project, type GeneratedCopy, type PhotoScreen } from './store.js';
 
 const Block = z.object({
   type: z.enum(['heading', 'paragraph', 'list']),
@@ -44,6 +44,53 @@ const RULES = `HARD RULES
 4. If what is visible seems to contradict the stated product, still write the copy using the stated product and add a warning.
 5. Do not describe or mention people, faces, house numbers or personal items.`;
 
+const ScreenSchema = z.object({
+  is_installation: z.boolean().describe('true only if the photo shows a window treatment (shades, blinds, shutters, drapery) installed in a room or building — not a screenshot, document, person, pet, food, street, product box or showroom sample book'),
+  installation_confidence: z.number().min(0).max(1),
+  product: z.enum(['Silhouette', 'Luminette', 'Duette', 'Pirouette', 'Vignette', 'PowerView', 'Designer Roller', 'Alustra', 'Custom Drapery', 'shutters', 'other', 'unknown']).describe('Which product line is most likely installed. Use "unknown" when the treatment is not clearly visible.'),
+  product_confidence: z.number().min(0).max(1).describe('How sure you are about the product. Be conservative: Silhouette vs Pirouette vs Vignette can look alike.'),
+  category: z.enum(['sheer', 'blackout', 'signature', 'motorized', 'drapery', 'shutters', 'commercial']),
+  room: z.string().describe('Room type in English, e.g. "Living Room"; empty if unclear'),
+  room_zh: z.string(),
+  notes: z.string().describe('One short sentence: the visual cue that led to the product decision'),
+});
+
+const CUES = `Visual cues for product lines (Hunter Douglas unless noted):
+- Silhouette: horizontal soft S-shaped fabric vanes suspended between two sheer layers; looks like floating horizontal slats behind a veil.
+- Pirouette: soft horizontal fabric folds/vanes attached to a single sheer backing; folds are fuller and more three-dimensional than Silhouette.
+- Luminette: VERTICAL sheer panels with rotating vertical fabric vanes; usually on sliding doors or very wide windows.
+- Duette: honeycomb/cellular shade; the profile shows hexagonal cells; flat pleated look from the front.
+- Vignette: Roman shade with consistent soft horizontal folds, no visible rear cords.
+- Designer Roller: flat roller shade with a single sheet of fabric on a tube; clean, minimal.
+- Alustra: luxury woven wood/textured fabric collection; only pick it when a distinctive woven texture is clearly visible.
+- PowerView: only when motorization is evident (no cords, visible remote, motor headrail, or several shades at identical positions); combine with the treatment type in notes.
+- Custom Drapery: fabric drapery panels or sheers hung on a rod or track.
+- shutters: hinged louvered panels (plantation shutters).
+- other: a treatment that is none of the above. unknown: cannot tell.
+Category mapping: Silhouette/Luminette/Pirouette -> sheer; Duette/Designer Roller -> blackout; Vignette/Alustra -> signature; PowerView -> motorized; Custom Drapery -> drapery; shutters -> shutters; commercial spaces (office, store, restaurant) -> commercial.`;
+
+export type Screener = (jpeg: Buffer) => Promise<PhotoScreen>;
+
+/** Classifies one photo: installation or not, product line + confidence, room. Uses the cheaper screening model. */
+export const claudeScreen: Screener = async (jpeg) => {
+  if (!claudeConfigured()) throw new Error('ANTHROPIC_API_KEY is not set');
+  const client = new Anthropic();
+  const response = await client.messages.parse({
+    model: config.screenModel,
+    max_tokens: 2000,
+    system: `You screen photos from an installer's phone for S. MORI Window Fashion (Irvine, CA). Decide whether a photo shows an installed window treatment and which product line it is. ${CUES}`,
+    messages: [{ role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: jpeg.toString('base64') } },
+      { type: 'text', text: 'Classify this photo.' },
+    ] }],
+    output_config: { format: zodOutputFormat(ScreenSchema) },
+  });
+  if (response.stop_reason === 'refusal' || !response.parsed_output) {
+    return { is_installation: false, installation_confidence: 0, product: 'unknown', product_confidence: 0, category: 'sheer', room: '', room_zh: '', notes: `screening unavailable (${response.stop_reason})` };
+  }
+  return response.parsed_output;
+};
+
 export function claudeConfigured(): boolean {
   return config.hasAnthropicKey;
 }
@@ -72,6 +119,7 @@ export async function generateCopy(project: Project, onLog: (m: string) => void 
     room: project.facts.room || '(not provided — you may suggest one in room_observed)',
     installed_on: project.facts.installed_on || '(not provided)',
     staff_notes: project.facts.notes || '(none)',
+    how_product_was_determined: project.auto ? `identified from the photos by an automated screening step (confidence ${Math.round((project.auto.confidence ?? 0) * 100)}%); treat it as the fact to use` : 'confirmed by staff',
     working_title: project.facts.title || '(none)',
   };
   content.push({ type: 'text', text: `${RULES}\n\nCONFIRMED FACTS (JSON):\n${JSON.stringify(facts, null, 2)}\n\nProduct lines S. MORI sells, for reference only:\n${PRODUCTS.map((p) => `- ${p.name} (${p.subtitle}): ${p.notes}`).join('\n')}\n\nWrite the case study now.` });

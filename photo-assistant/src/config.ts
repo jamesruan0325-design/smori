@@ -21,6 +21,22 @@ export const config = {
   /** Random secret for cookie signing and token encryption (>= 32 chars). */
   sessionSecret: env('SESSION_SECRET'),
   nodeEnv: env('NODE_ENV', 'development'),
+  /** ---- automatic pipeline ---- */
+  autoEnabled: env('AUTO_ENABLED', 'true') !== 'false',
+  autoPollMinutes: Number(env('AUTO_POLL_MINUTES', '10')),
+  autoPublishConfidence: Number(env('AUTO_PUBLISH_CONFIDENCE', '0.8')),
+  clusterGapHours: Number(env('CLUSTER_GAP_HOURS', '8')),
+  clusterRadiusMeters: Number(env('CLUSTER_RADIUS_METERS', '400')),
+  projectCloseHours: Number(env('PROJECT_CLOSE_HOURS', '6')),
+  timezone: env('TIMEZONE', 'America/Los_Angeles'),
+  screenModel: env('CLAUDE_SCREEN_MODEL', 'claude-sonnet-5'),
+  dropboxAppKey: env('DROPBOX_APP_KEY'),
+  dropboxAppSecret: env('DROPBOX_APP_SECRET'),
+  dropboxFolder: env('DROPBOX_FOLDER', '/Camera Uploads'),
+  ntfyServer: env('NTFY_SERVER', 'https://ntfy.sh').replace(/\/$/, ''),
+  ntfyTopic: env('NTFY_TOPIC'),
+  inboxToken: env('INBOX_TOKEN'),
+  contactEmail: env('CONTACT_EMAIL', 'bonniex@smoriwindowfashion.com'),
   apiVersion: env('SHOPIFY_API_VERSION', '2026-07'),
   storeHandle: env('SHOPIFY_STORE_HANDLE', 'smori-9216'),
   /** Optional override of the Admin GraphQL endpoint (used by the fake server in tests). */

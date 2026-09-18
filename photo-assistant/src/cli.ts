@@ -97,7 +97,18 @@ async function main() {
     return;
   }
 
-  console.log('commands: check | setup | e2e');
+  if (cmd === 'auto') {
+    const { runAutoCycle } = await import('./auto.js');
+    console.log(JSON.stringify(await runAutoCycle(undefined, { fromScratch: Boolean(args['from-scratch']) }), null, 2));
+    return;
+  }
+  if (cmd === 'finalize') {
+    const { finalizeProject } = await import('./auto.js');
+    const p = await finalizeProject(String(args.id), undefined, { force: Boolean(args.force) });
+    console.log(JSON.stringify({ auto: p.auto, facts: p.facts, shopify: p.shopify }, null, 2));
+    return;
+  }
+  console.log('commands: check | setup | e2e | auto [--from-scratch] | finalize --id <project> [--force]');
 }
 
 main().catch((e) => { console.error(`ERROR: ${e.message}`); process.exit(1); });

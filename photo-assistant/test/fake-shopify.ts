@@ -67,6 +67,13 @@ export async function startFakeShopify(): Promise<{ endpoint: string; state: Fak
           state.metaobjects.push({ id, handle, type: m.type, fields: Object.fromEntries(m.fields.map((f: any) => [f.key, f.value])), status: m.capabilities?.publishable?.status ?? 'ACTIVE' });
           return reply({ metaobjectCreate: { metaobject: { id, handle }, userErrors: [] } });
         }
+        case 'metaobjectUpdate': {
+          const mo = state.metaobjects.find((m) => m.id === variables.id);
+          if (!mo) return reply({ metaobjectUpdate: { metaobject: null, userErrors: [{ field: ['id'], message: 'not found', code: 'NOT_FOUND' }] } });
+          for (const f of variables.metaobject.fields ?? []) mo.fields[f.key] = f.value;
+          if (variables.metaobject.capabilities?.publishable?.status) mo.status = variables.metaobject.capabilities.publishable.status;
+          return reply({ metaobjectUpdate: { metaobject: { id: mo.id }, userErrors: [] } });
+        }
         default:
           return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ errors: [{ message: `fake: unknown operation ${op}` }] }));
       }

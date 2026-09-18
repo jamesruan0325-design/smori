@@ -77,5 +77,29 @@ export async function deleteSession(shop: string): Promise<boolean> {
 }
 
 export async function listShops(): Promise<string[]> {
-  return Object.keys(await readAll());
+  return Object.keys(await readAll()).filter((k) => !k.startsWith(SECRET_PREFIX));
+}
+
+/* ------------------------------------------------------------------ */
+/* Generic encrypted secrets (e.g. Dropbox refresh token)              */
+/* ------------------------------------------------------------------ */
+
+const SECRET_PREFIX = '__secret__:';
+
+export async function saveSecret(name: string, value: string): Promise<void> {
+  const all = await readAll();
+  all[SECRET_PREFIX + name] = encrypt(value);
+  await writeAll(all);
+}
+
+export async function getSecret(name: string): Promise<string | null> {
+  const all = await readAll();
+  const e = all[SECRET_PREFIX + name];
+  return e ? decrypt(e) : null;
+}
+
+export async function deleteSecret(name: string): Promise<void> {
+  const all = await readAll();
+  delete all[SECRET_PREFIX + name];
+  await writeAll(all);
 }

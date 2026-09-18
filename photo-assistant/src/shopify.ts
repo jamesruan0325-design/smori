@@ -214,3 +214,15 @@ export function adminUrlFor(gid: string, type = config.metaobjectType): string {
   const numeric = gid.split('/').pop();
   return `https://admin.shopify.com/store/${config.storeHandle}/content/entries/${type}/${numeric}`;
 }
+
+/** Updates field values and/or publish status of an existing entry. Publishing is an explicit, separate decision. */
+export async function updateMetaobject(id: string, fields: Record<string, string> | null, status?: 'DRAFT' | 'ACTIVE' | null): Promise<void> {
+  const input: Record<string, unknown> = {};
+  if (fields) input.fields = Object.entries(fields).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([key, value]) => ({ key, value }));
+  if (status) input.capabilities = { publishable: { status } };
+  const d = await graphql<{ metaobjectUpdate: { metaobject: { id: string } | null; userErrors: any[] } }>(
+    `mutation($id: ID!, $metaobject: MetaobjectUpdateInput!) { metaobjectUpdate(id: $id, metaobject: $metaobject) { metaobject { id } userErrors { field message code } } }`,
+    { id, metaobject: input },
+  );
+  assertNoUserErrors('metaobjectUpdate', d.metaobjectUpdate.userErrors);
+}

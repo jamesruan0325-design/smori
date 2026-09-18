@@ -10,6 +10,9 @@ import { getDefinition, shopInfo, shopifyConfigured, ensureDefinition, resolveSe
 import { beginAuth, handleCallback, isValidShop, oauthConfigured, verifyQueryHmac } from './oauth.js';
 import { handleWebhook } from './webhooks.js';
 import { getSession } from './tokens.js';
+import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConfigured, dropboxConnected, dropboxAccount, readState as dropboxState } from './dropbox.js';
+import { approveAndPublish, finalizeProject, ingestPhoto, readLog, runAutoCycle, startScheduler } from './auto.js';
+import { notifyConfigured } from './notify.js';
 import { claudeConfigured } from './copy.js';
 import { runGenerate, runSaveDraft, buildMetaobjectFields } from './pipeline.js';
 import { createProject, deletePhotoFiles, getProject, listProjects, photoPath, saveProject, type ProjectFacts } from './store.js';
@@ -17,13 +20,37 @@ import { createProject, deletePhotoFiles, getProject, listProjects, photoPath, s
 const here = path.dirname(fileURLToPath(import.meta.url));
 const param = (req: express.Request, name: string) => String(req.params[name] ?? '');
 const app = express();
-app.set('trust proxy', 1); // behind Fly/Render/Cloudflare: correct req.secure and cookies
+app.set('trust proxy', 1);
+
+type Handler = (req: express.Request, res: express.Response) => Promise<void>;
+const wrap = (fn: Handler) => (req: express.Request, res: express.Response) => fn(req, res).catch((err: Error) => {
+  console.error(err);
+  res.status(400).json({ error: err.message });
+});
+function wrapPlain(fn: Handler) {
+  return (req: express.Request, res: express.Response) => fn(req, res).catch((err: Error) => { console.error(err); res.status(500).send(err.message); });
+}
+ // behind Fly/Render/Cloudflare: correct req.secure and cookies
 
 // ---- Shopify OAuth + webhooks (no basic auth; Shopify calls these) ----
 app.get('/auth', (req, res) => beginAuth(req, res));
 app.get('/auth/callback', wrapPlain((req, res) => handleCallback(req, res)));
 app.post('/webhooks/:topic', express.raw({ type: '*/*', limit: '1mb' }), wrapPlain(handleWebhook));
 app.get('/healthz', (_req, res) => { res.json({ ok: true }); });
+app.get('/connect/dropbox/callback', wrapPlain((req, res) => handleDropboxCallback(req, res)));
+
+// ---- inbox for phone automations (bearer INBOX_TOKEN), multipart field "photos" ----
+app.post('/api/inbox', multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024, files: 50 } }).array('photos', 50), wrap(async (req, res) => {
+  const auth = req.headers.authorization ?? '';
+  if (!config.inboxToken || auth !== `Bearer ${config.inboxToken}`) { res.status(401).json({ error: 'bad inbox token' }); return; }
+  const files = (req.files as Express.Multer.File[]) ?? [];
+  const results = [];
+  for (const f of files) {
+    try { results.push({ name: f.originalname, ...(await ingestPhoto(f.buffer, f.originalname, 'inbox')) }); }
+    catch (e) { results.push({ name: f.originalname, action: 'error', error: (e as Error).message }); }
+  }
+  res.json({ results });
+}));
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -54,14 +81,6 @@ app.use(express.static(path.join(here, '..', 'public')));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024, files: 30 } });
 
-type Handler = (req: express.Request, res: express.Response) => Promise<void>;
-const wrap = (fn: Handler) => (req: express.Request, res: express.Response) => fn(req, res).catch((err: Error) => {
-  console.error(err);
-  res.status(400).json({ error: err.message });
-});
-function wrapPlain(fn: Handler) {
-  return (req: express.Request, res: express.Response) => fn(req, res).catch((err: Error) => { console.error(err); res.status(500).send(err.message); });
-}
 
 function cleanFacts(input: Partial<ProjectFacts>, existing?: ProjectFacts): ProjectFacts {
   const s = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
@@ -101,6 +120,11 @@ app.get('/api/health', wrap(async (_req, res) => {
       out.shopify = { ...(out.shopify as object), connected: false, error: (e as Error).message };
     }
   }
+  const dbxConnected = await dropboxConnected();
+  const st = await dropboxState();
+  out.auto = { enabled: config.autoEnabled, pollMinutes: config.autoPollMinutes, publishConfidence: config.autoPublishConfidence, notify: notifyConfigured(), inbox: Boolean(config.inboxToken) };
+  out.dropbox = { configured: dropboxConfigured(), connected: dbxConnected, folder: config.dropboxFolder, lastRun: st.lastRun ?? null, seen: Object.keys(st.seen).length };
+  if (dbxConnected) { try { (out.dropbox as Record<string, unknown>).account = await dropboxAccount(); } catch (e) { (out.dropbox as Record<string, unknown>).error = (e as Error).message; } }
   res.json(out);
 }));
 
@@ -108,10 +132,18 @@ app.post('/api/setup', wrap(async (_req, res) => {
   res.json(await ensureDefinition());
 }));
 
+// ---- Dropbox + automatic pipeline ----
+app.get('/connect/dropbox', (req, res) => beginDropboxAuth(req, res));
+app.post('/api/dropbox/disconnect', wrap(async (_req, res) => { await disconnectDropbox(); res.json({ ok: true }); }));
+app.post('/api/auto/run', wrap(async (req, res) => { res.json(await runAutoCycle(undefined, { fromScratch: Boolean(req.body?.fromScratch) })); }));
+app.get('/api/auto/log', wrap(async (_req, res) => { res.json({ lines: (await readLog(150)).map((l) => JSON.parse(l)) }); }));
+app.post('/api/projects/:id/finalize', wrap(async (req, res) => { res.json(await finalizeProject(param(req, 'id'), undefined, { force: true })); }));
+app.post('/api/projects/:id/publish', wrap(async (req, res) => { res.json(await approveAndPublish(param(req, 'id'), { regenerate: Boolean(req.body?.regenerate) })); }));
+
 // ---- projects ----
 app.get('/api/projects', wrap(async (_req, res) => {
   const list = await listProjects();
-  res.json(list.map((p) => ({ id: p.id, createdAt: p.createdAt, facts: p.facts, photos: p.photos.length, hasCopy: Boolean(p.copy), shopify: p.shopify ?? null, cover: p.photos.find((x) => x.cover)?.id ?? p.photos[0]?.id ?? null })));
+  res.json(list.map((p) => ({ id: p.id, createdAt: p.createdAt, facts: p.facts, photos: p.photos.length, hasCopy: Boolean(p.copy), shopify: p.shopify ?? null, auto: p.auto ?? null, cover: p.photos.find((x) => x.cover)?.id ?? p.photos[0]?.id ?? null })));
 }));
 
 app.post('/api/projects', wrap(async (req, res) => {
@@ -207,6 +239,7 @@ app.get('/files/:id/:kind/:name', wrap(async (req, res) => {
   res.sendFile(photoPath(param(req, 'id'), kind, name));
 }));
 
+startScheduler();
 app.listen(config.port, () => {
   console.log(`SMORI photo assistant: http://localhost:${config.port}  (data: ${config.dataDir})`);
   console.log(`Claude: ${claudeConfigured() ? config.claudeModel : 'NOT configured'} | OAuth: ${oauthConfigured() ? `${config.appUrl} (client ${config.apiKey.slice(0, 6)}…)` : 'NOT configured'}`);

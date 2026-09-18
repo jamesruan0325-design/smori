@@ -88,8 +88,15 @@ async function loadHealth() {
     `Claude: <b class="${c.configured?'ok':'err'}">${c.configured ? c.model : '未配置 ANTHROPIC_API_KEY'}</b> &nbsp;|&nbsp; ` +
     `Shopify: <b class="${s.connected?'ok':'err'}">${!s.configured ? (s.oauth ? `未安装到 ${esc(s.shop)}` : '未配置 OAuth（SHOPIFY_API_KEY 等）') : s.connected ? esc(s.name) : '连接失败'}</b>` +
     (!s.configured && s.installUrl ? ` <a href="${esc(s.installUrl)}">安装应用</a>` : '') +
-    (s.connected ? ` &nbsp;|&nbsp; 元对象定义: <b class="${s.definition.exists?'ok':'warn'}">${s.definition.exists ? `已存在 (${s.definition.fields} 字段)` : '未创建'}</b> ${s.definition.exists ? '' : '<button class="btn small" onclick="setup()">一键创建</button>'}` : '');
+    (s.connected ? ` &nbsp;|&nbsp; 元对象定义: <b class="${s.definition.exists?'ok':'warn'}">${s.definition.exists ? `已存在 (${s.definition.fields} 字段)` : '未创建'}</b> ${s.definition.exists ? '' : '<button class="btn small" onclick="setup()">一键创建</button>'}` : '') +
+    `<br>Dropbox: <b class="${health.dropbox.connected?'ok':'warn'}">${!health.dropbox.configured ? '未配置 DROPBOX_APP_KEY' : health.dropbox.connected ? `已连接 ${esc(health.dropbox.account?.email || '')}（${esc(health.dropbox.folder)}，已处理 ${health.dropbox.seen} 张）` : '未连接'}</b> ` +
+    (health.dropbox.configured && !health.dropbox.connected ? '<a class="btn small" href="/connect/dropbox">连接 Dropbox</a>' : '') +
+    (health.dropbox.connected ? ` <button class="btn small" onclick="autoRun()">立即同步</button> <button class="btn small" onclick="if(confirm('断开后不再自动导入，确定？')) api('/api/dropbox/disconnect',{method:'POST'}).then(loadHealth)">断开</button>` : '') +
+    ` &nbsp;|&nbsp; 自动流水线: <b class="${health.auto.enabled?'ok':'warn'}">${health.auto.enabled ? `每 ${health.auto.pollMinutes} 分钟，把握度 ≥ ${Math.round(health.auto.publishConfidence*100)}% 自动发布` : '已关闭'}</b>` +
+    ` &nbsp;|&nbsp; 通知: <b class="${health.auto.notify?'ok':'warn'}">${health.auto.notify ? 'ntfy 已配置' : '未配置 NTFY_TOPIC'}</b>`;
 }
+async function autoRun() { try { const r = await api('/api/auto/run', {method:'POST', body:{}}); alert(`同步完成：新照片 ${r.pulled}，加入案例 ${r.added}，丢弃 ${r.discarded}，完成案例 ${r.finalized.length}${r.errors.length ? '\n错误：' + r.errors.join('\n') : ''}`); loadHealth(); loadProjects(); if (current) openProject(current.id); } catch (e) { alert(e.message); } }
+const AUTO_LABEL = { collecting: '收集中', processing: '处理中', review: '待确认', published: '已发布', error: '出错' };
 async function setup() { try { const r = await api('/api/setup', {method:'POST'}); alert('定义 ' + r.action + '：' + r.definition.fieldKeys.join(', ')); loadHealth(); } catch (e) { alert(e.message); } }
 
 async function loadProjects() {
@@ -98,7 +105,7 @@ async function loadProjects() {
     <div class="proj ${current && current.id===p.id?'active':''}" onclick="openProject('${p.id}')">
       ${p.cover ? `<img src="/files/${p.id}/thumb/${p.cover}.jpg">` : '<img>'}
       <div><div class="t">${esc(p.facts.title || p.facts.product_name)} · ${esc(p.facts.location)}</div>
-      <div class="m">${p.photos} 张 ${p.hasCopy ? '· 已生成文案' : ''} ${p.shopify ? `<span class="badge draft">${p.shopify.dryRun ? '模拟' : '草稿已保存'}</span>` : ''}</div></div>
+      <div class="m">${p.photos} 张 ${p.hasCopy ? '· 已生成文案' : ''} ${p.auto ? `<span class="badge ${p.auto.status==='published'?'draft':''}" style="${p.auto.status==='review'?'border-color:var(--warn);color:var(--warn)':''}">自动 · ${AUTO_LABEL[p.auto.status] || p.auto.status}</span>` : ''} ${p.shopify && !p.auto ? `<span class="badge draft">${p.shopify.dryRun ? '模拟' : p.shopify.status === 'ACTIVE' ? '已发布' : '草稿已保存'}</span>` : ''}</div></div>
     </div>`).join('') || '<p style="color:var(--muted);font-size:12px">还没有项目</p>';
 }
 
@@ -140,7 +147,13 @@ async function openProject(id) {
   const c = p.copy;
   $('#view').innerHTML = `
     <h2>${esc(c?.title || p.facts.title || p.facts.product_name)} <span style="font-size:13px;color:var(--muted)">${p.id}</span></h2>
-    ${p.shopify ? `<div class="panel ok">✔ ${p.shopify.dryRun ? '模拟运行完成（未写入 Shopify）' : `已保存为 Shopify 草稿：${esc(p.shopify.handle)}`} ${p.shopify.adminUrl ? `— <a href="${p.shopify.adminUrl}" target="_blank">在后台打开审核</a>` : ''}</div>` : ''}
+    ${p.auto ? `<div class="panel" style="border-color:${p.auto.status==='review'?'var(--warn)':p.auto.status==='published'?'var(--ok)':'var(--line)'}">
+        <b>自动导入 · ${AUTO_LABEL[p.auto.status] || p.auto.status}</b>${p.auto.reason ? ` — ${esc(p.auto.reason)}` : ''}${p.auto.error ? ` <span class="err">${esc(p.auto.error)}</span>` : ''}
+        ${p.auto.votes && Object.keys(p.auto.votes).length ? `<div style="font-size:12px;color:var(--muted);margin-top:6px">AI 对产品的判断：${Object.entries(p.auto.votes).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${esc(k)} ${v.toFixed(1)}`).join(' · ')}${p.auto.confidence!==undefined?` · 总把握度 ${Math.round(p.auto.confidence*100)}%`:''}</div>` : ''}
+        ${p.auto.status==='review' ? `<div style="margin-top:10px;font-size:13px">请在下方"项目信息"里确认产品型号和地点并保存，然后点 <b>确认并发布</b>。</div>` : ''}
+        ${p.auto.status==='collecting' ? `<div style="margin-top:8px"><button class="btn small" onclick="finalizeNow('${p.id}')">现在整理（不再等新照片）</button></div>` : ''}
+      </div>` : ''}
+    ${p.shopify ? `<div class="panel ok">✔ ${p.shopify.dryRun ? '模拟运行完成（未写入 Shopify）' : p.shopify.status === 'ACTIVE' ? `已发布到网站：${esc(p.shopify.handle)}` : `已保存为 Shopify 草稿：${esc(p.shopify.handle)}`} ${p.shopify.adminUrl ? `— <a href="${p.shopify.adminUrl}" target="_blank">在后台打开</a>` : ''}</div>` : ''}
 
     <h3>1. 项目信息</h3>
     <form id="factsForm">${factsForm(p.facts)}<button class="btn small" style="margin-top:10px">保存信息</button></form>
@@ -151,7 +164,7 @@ async function openProject(id) {
     <div class="photos">${p.photos.map((ph, i) => `
       <div class="ph ${ph.cover?'cover':''}">
         <img src="/files/${p.id}/thumb/${ph.id}.jpg" title="${esc(ph.originalName)}">
-        <div class="i">${i+1}. ${esc(ph.originalName)}<br>${Math.round(ph.originalBytes/1024)} KB → ${Math.round(ph.webBytes/1024)} KB · ${ph.width}×${ph.height} ${ph.cover?'<b class="ok">封面</b>':''} ${ph.shopifyFileId?'<span class="ok">已上传</span>':''}<br>${esc(ph.caption||'')}</div>
+        <div class="i">${i+1}. ${esc(ph.originalName)}<br>${Math.round(ph.originalBytes/1024)} KB → ${Math.round(ph.webBytes/1024)} KB · ${ph.width}×${ph.height} ${ph.cover?'<b class="ok">封面</b>':''} ${ph.shopifyFileId?'<span class="ok">已上传</span>':''}${ph.screen ? `<br><span class="warn">AI：${esc(ph.screen.product)} ${Math.round(ph.screen.product_confidence*100)}%</span> ${esc(ph.screen.notes||'')}` : ''}<br>${esc(ph.caption||'')}</div>
         <div class="a">
           <button onclick="patch({coverId:'${ph.id}'})">设为封面</button>
           <button onclick="move('${ph.id}',-1)">←</button><button onclick="move('${ph.id}',1)">→</button>
@@ -172,6 +185,7 @@ async function openProject(id) {
     <div>
       <button class="btn primary" id="draftBtn" ${!c || !health.shopify.connected || (p.shopify && !p.shopify.dryRun) ? 'disabled' : ''}>上传照片并创建草稿</button>
       <button class="btn" id="dryBtn" ${!c ? 'disabled' : ''}>模拟运行（不写入）</button>
+      <button class="btn primary" id="pubBtn" ${!c || !health.shopify.connected || (p.shopify && p.shopify.status === 'ACTIVE') ? 'disabled' : ''} style="margin-left:10px">${p.shopify && !p.shopify.dryRun ? '更新并发布到网站' : '创建并发布到网站'}</button>
       <span style="font-size:12px;color:var(--muted);margin-left:10px">创建后状态为「草稿」，需在 Shopify 后台审核后改为「已发布」</span>
     </div>
     <div id="draftLog" class="log hidden"></div>`;
@@ -185,6 +199,7 @@ async function openProject(id) {
   $('#genBtn').onclick = () => run(p.id, '/generate', {}, '#genLog', '#genBtn');
   $('#draftBtn').onclick = () => { if (confirm('将把压缩后的照片上传到 Shopify Files，并创建一条「草稿」案例。继续？')) run(p.id, '/shopify-draft', {}, '#draftLog', '#draftBtn'); };
   $('#dryBtn').onclick = () => run(p.id, '/shopify-draft', {dryRun:true}, '#draftLog', '#dryBtn');
+  $('#pubBtn').onclick = () => { if (confirm('将把这条案例设为「已发布」，网站上会立即显示。继续？')) runPlain(p.id, '/publish', {}, '#draftLog', '#pubBtn'); };
   const cf = $('#copyForm'); if (cf) cf.onsubmit = async (e) => { e.preventDefault(); try { await api('/api/projects/'+p.id, {method:'PATCH', body:{copy: Object.fromEntries(new FormData(e.target).entries())}}); openProject(p.id); } catch (err) { alert(err.message); } };
   document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); document.querySelectorAll('.lang').forEach(x => x.classList.toggle('hidden', x.dataset.lang !== b.dataset.lang)); });
 }
@@ -222,6 +237,12 @@ async function run(id, path, body, logSel, btnSel) {
   try { const r = await api('/api/projects/'+id+path, {method:'POST', body}); log.textContent = r.logs.join('\n'); openProject(id); }
   catch (e) { log.innerHTML = '<span class="err">出错：' + esc(e.message) + '</span>'; btn.disabled = false; }
 }
+async function runPlain(id, path, body, logSel, btnSel) {
+  const log = $(logSel), btn = $(btnSel); log.classList.remove('hidden'); log.textContent = '处理中…'; btn.disabled = true;
+  try { await api('/api/projects/'+id+path, {method:'POST', body}); log.textContent = '完成'; openProject(id); }
+  catch (e) { log.innerHTML = '<span class="err">出错：' + esc(e.message) + '</span>'; btn.disabled = false; }
+}
+async function finalizeNow(id) { if (!confirm('立即整理这个案例并创建草稿/发布？')) return; try { await api('/api/projects/'+id+'/finalize', {method:'POST', body:{}}); openProject(id); } catch (e) { alert(e.message); } }
 async function uploadFiles(id, files) {
   if (!files.length) return;
   const fd = new FormData(); for (const f of files) fd.append('photos', f);
@@ -233,7 +254,7 @@ async function patch(body) { try { await api('/api/projects/'+current.id, {metho
 async function move(id, dir) { const ids = current.photos.map(p => p.id); const i = ids.indexOf(id); const j = i + dir; if (j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; patch({photoOrder: ids}); }
 async function delPhoto(id) { if (!confirm('删除这张照片（含原图）？')) return; try { await api(`/api/projects/${current.id}/photos/${id}`, {method:'DELETE'}); openProject(current.id); } catch (e) { alert(e.message); } }
 
-loadHealth().then(loadProjects).catch(e => { $('#status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; });
+loadHealth().then(loadProjects).then(() => { const h = location.hash.slice(1); if (h) openProject(h); }).catch(e => { $('#status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; });
 </script>
 </body>
 </html>
