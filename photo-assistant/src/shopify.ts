@@ -115,7 +115,7 @@ export async function ensureDefinition(type = config.metaobjectType): Promise<{ 
         definition: {
           name: 'Installation Case',
           type,
-          displayNameField: 'title',
+          displayNameKey: 'title',
           fieldDefinitions: FIELD_DEFINITIONS,
           capabilities: {
             publishable: { enabled: true },
