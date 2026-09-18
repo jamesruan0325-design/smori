@@ -142,8 +142,11 @@ export async function resolveFolder(fetchImpl: typeof fetch = fetch): Promise<{ 
   const state = await readState();
   if (state.folder) return { folder: state.folder, nsid: state.nsid };
   const wanted = config.dropboxFolder.toLowerCase();
+  // preference: configured path > Dropbox's own camera-upload folder (any language) > a folder simply named "camera"
   const pick = (folders: { name?: string; path_lower?: string; path_display?: string }[]) =>
-    folders.find((f) => f.path_lower === wanted) ?? folders.find((f) => CAMERA_FOLDER_NAMES.test(f.name ?? ''));
+    folders.find((f) => f.path_lower === wanted)
+    ?? folders.find((f) => CAMERA_FOLDER_NAMES.test(f.name ?? '') && !/^camera$/i.test(f.name ?? ''))
+    ?? folders.find((f) => /^camera$/i.test(f.name ?? ''));
   const seen: string[] = [];
 
   // 1. member home namespace (default)
