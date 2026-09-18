@@ -103,7 +103,7 @@ interface ListResult { entries: ({ '.tag': string } & Partial<DropboxFile>)[]; c
 
 const stateFile = () => path.join(config.dataDir, 'auto', 'dropbox-state.json');
 
-export interface DropboxState { cursor?: string; lastRun?: string; seen: Record<string, string> }
+export interface DropboxState { cursor?: string; lastRun?: string; folder?: string; seen: Record<string, string> }
 
 export async function readState(): Promise<DropboxState> {
   try { return JSON.parse(await fs.readFile(stateFile(), 'utf8')); } catch { return { seen: {} }; }
@@ -117,7 +117,29 @@ export async function writeState(s: DropboxState): Promise<void> {
 async function resetCursor(): Promise<void> {
   const s = await readState();
   delete s.cursor;
+  delete s.folder;
   await writeState(s);
+}
+
+const CAMERA_FOLDER_NAMES = /^(camera uploads|相机上传|相機上傳|カメラアップロード|kamera-uploads|camera-uploads|téléchargements de l'appareil photo|subidas de cámara)$/i;
+
+/**
+ * Finds the camera-upload folder: the configured DROPBOX_FOLDER if it exists,
+ * otherwise a root folder with a known (localised) camera-upload name.
+ */
+export async function resolveFolder(fetchImpl: typeof fetch = fetch): Promise<string> {
+  const state = await readState();
+  if (state.folder) return state.folder;
+  const root = await rpc<ListResult>('files/list_folder', { path: '', recursive: false, limit: 500 }, fetchImpl);
+  const folders = root.entries.filter((e) => e['.tag'] === 'folder');
+  const wanted = config.dropboxFolder.replace(/^\//, '').toLowerCase();
+  const match = folders.find((f) => f.path_lower === `/${wanted}`) ?? folders.find((f) => CAMERA_FOLDER_NAMES.test(f.name ?? ''));
+  if (!match?.path_display) {
+    throw new Error(`Dropbox: camera-upload folder not found. Root folders: ${folders.map((f) => f.name).join(', ') || '(none)'}. Turn on camera uploads in the Dropbox app and upload one photo, or set DROPBOX_FOLDER.`);
+  }
+  state.folder = match.path_display;
+  await writeState(state);
+  return state.folder;
 }
 
 /**
@@ -126,14 +148,15 @@ async function resetCursor(): Promise<void> {
  * set `fromScratch` to import everything already in the folder.
  */
 export async function listNewFiles(opts: { fromScratch?: boolean } = {}, fetchImpl: typeof fetch = fetch): Promise<DropboxFile[]> {
+  const folder = await resolveFolder(fetchImpl);
   const state = await readState();
   const files: DropboxFile[] = [];
   let result: ListResult;
   if (!state.cursor) {
     if (opts.fromScratch) {
-      result = await rpc<ListResult>('files/list_folder', { path: config.dropboxFolder, recursive: false, include_media_info: true, limit: 500 }, fetchImpl);
+      result = await rpc<ListResult>('files/list_folder', { path: folder, recursive: false, include_media_info: true, limit: 500 }, fetchImpl);
     } else {
-      const latest = await rpc<{ cursor: string }>('files/list_folder/get_latest_cursor', { path: config.dropboxFolder, recursive: false, include_media_info: true }, fetchImpl);
+      const latest = await rpc<{ cursor: string }>('files/list_folder/get_latest_cursor', { path: folder, recursive: false, include_media_info: true }, fetchImpl);
       state.cursor = latest.cursor;
       state.lastRun = new Date().toISOString();
       await writeState(state);

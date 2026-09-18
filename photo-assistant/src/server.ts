@@ -123,7 +123,7 @@ app.get('/api/health', wrap(async (_req, res) => {
   const dbxConnected = await dropboxConnected();
   const st = await dropboxState();
   out.auto = { enabled: config.autoEnabled, pollMinutes: config.autoPollMinutes, publishConfidence: config.autoPublishConfidence, notify: notifyConfigured(), inbox: Boolean(config.inboxToken) };
-  out.dropbox = { configured: dropboxConfigured(), connected: dbxConnected, folder: config.dropboxFolder, lastRun: st.lastRun ?? null, seen: Object.keys(st.seen).length };
+  out.dropbox = { configured: dropboxConfigured(), connected: dbxConnected, folder: st.folder ?? config.dropboxFolder, lastRun: st.lastRun ?? null, seen: Object.keys(st.seen).length };
   if (dbxConnected) { try { (out.dropbox as Record<string, unknown>).account = await dropboxAccount(); } catch (e) { (out.dropbox as Record<string, unknown>).error = (e as Error).message; } }
   res.json(out);
 }));
