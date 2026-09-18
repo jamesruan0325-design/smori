@@ -78,6 +78,11 @@ async function accessToken(fetchImpl: typeof fetch = fetch): Promise<string> {
   return cached.token;
 }
 
+/** Dropbox-API-Arg must be "HTTP header safe" JSON: escape every non-ASCII character. */
+export function headerJson(value: unknown): string {
+  return JSON.stringify(value).replace(/[\u007f-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+}
+
 /** Team accounts with a team space: files outside the member folder need the root namespace as path root. */
 function pathRootHeader(nsid?: string): Record<string, string> {
   return nsid ? { 'Dropbox-API-Path-Root': JSON.stringify({ '.tag': 'root', root: nsid }) } : {};
@@ -230,7 +235,7 @@ export async function markSeen(pathLower: string, status: string): Promise<void>
 export async function download(pathLower: string, fetchImpl: typeof fetch = fetch): Promise<Buffer> {
   const token = await accessToken(fetchImpl);
   const { nsid } = await readState();
-  const r = await fetchImpl('https://content.dropboxapi.com/2/files/download', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Dropbox-API-Arg': JSON.stringify({ path: pathLower }), ...pathRootHeader(nsid) } });
+  const r = await fetchImpl('https://content.dropboxapi.com/2/files/download', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Dropbox-API-Arg': headerJson({ path: pathLower }), ...pathRootHeader(nsid) } });
   if (!r.ok) throw new Error(`Dropbox download ${pathLower}: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
   return Buffer.from(await r.arrayBuffer());
 }
