@@ -10,6 +10,7 @@ import { config } from './config.js';
 import { getSecret, saveSecret, deleteSecret } from './tokens.js';
 
 const SCOPES = 'files.metadata.read files.content.read account_info.read';
+let cached: { token: string; expiresAt: number } | null = null;
 const STATE_COOKIE = 'smori_dbx_state';
 
 export function dropboxConfigured(): boolean {
@@ -52,17 +53,18 @@ export async function handleDropboxCallback(req: Request, res: Response, fetchIm
   if (!json.refresh_token) { res.status(502).send('Dropbox did not return a refresh token'); return; }
   await saveSecret('dropbox_refresh_token', json.refresh_token);
   await saveSecret('dropbox_account_id', json.account_id ?? '');
+  cached = null; // a new grant may carry new scopes
   await resetCursor();
   res.redirect('/?dropbox=connected');
 }
 
 export async function disconnectDropbox(): Promise<void> {
+  cached = null;
   await deleteSecret('dropbox_refresh_token');
   await deleteSecret('dropbox_account_id');
   await resetCursor();
 }
 
-let cached: { token: string; expiresAt: number } | null = null;
 
 async function accessToken(fetchImpl: typeof fetch = fetch): Promise<string> {
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
@@ -79,7 +81,11 @@ async function accessToken(fetchImpl: typeof fetch = fetch): Promise<string> {
 async function rpc<T>(endpoint: string, arg: unknown, fetchImpl: typeof fetch = fetch): Promise<T> {
   const token = await accessToken(fetchImpl);
   const r = await fetchImpl(`https://api.dropboxapi.com/2/${endpoint}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(arg) });
-  if (!r.ok) throw new Error(`Dropbox ${endpoint}: HTTP ${r.status} ${(await r.text()).slice(0, 300)}`);
+  if (!r.ok) {
+    const text = (await r.text()).slice(0, 300);
+    if (r.status === 401) cached = null;
+    throw new Error(`Dropbox ${endpoint}: HTTP ${r.status} ${text}`);
+  }
   return (await r.json()) as T;
 }
 
