@@ -78,9 +78,14 @@ async function accessToken(fetchImpl: typeof fetch = fetch): Promise<string> {
   return cached.token;
 }
 
-async function rpc<T>(endpoint: string, arg: unknown, fetchImpl: typeof fetch = fetch): Promise<T> {
+/** Team accounts with a team space: files outside the member folder need the root namespace as path root. */
+function pathRootHeader(nsid?: string): Record<string, string> {
+  return nsid ? { 'Dropbox-API-Path-Root': JSON.stringify({ '.tag': 'root', root: nsid }) } : {};
+}
+
+async function rpc<T>(endpoint: string, arg: unknown, fetchImpl: typeof fetch = fetch, nsid?: string): Promise<T> {
   const token = await accessToken(fetchImpl);
-  const r = await fetchImpl(`https://api.dropboxapi.com/2/${endpoint}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(arg) });
+  const r = await fetchImpl(`https://api.dropboxapi.com/2/${endpoint}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...pathRootHeader(nsid) }, body: JSON.stringify(arg) });
   if (!r.ok) {
     const text = (await r.text()).slice(0, 300);
     if (r.status === 401) cached = null;
@@ -103,7 +108,7 @@ interface ListResult { entries: ({ '.tag': string } & Partial<DropboxFile>)[]; c
 
 const stateFile = () => path.join(config.dataDir, 'auto', 'dropbox-state.json');
 
-export interface DropboxState { cursor?: string; lastRun?: string; folder?: string; seen: Record<string, string> }
+export interface DropboxState { cursor?: string; lastRun?: string; folder?: string; nsid?: string; seen: Record<string, string> }
 
 export async function readState(): Promise<DropboxState> {
   try { return JSON.parse(await fs.readFile(stateFile(), 'utf8')); } catch { return { seen: {} }; }
@@ -118,6 +123,7 @@ async function resetCursor(): Promise<void> {
   const s = await readState();
   delete s.cursor;
   delete s.folder;
+  delete s.nsid;
   await writeState(s);
 }
 
@@ -127,19 +133,53 @@ const CAMERA_FOLDER_NAMES = /^(camera uploads|camera|相机上传|相機上傳|�
  * Finds the camera-upload folder: the configured DROPBOX_FOLDER if it exists,
  * otherwise a root folder with a known (localised) camera-upload name.
  */
-export async function resolveFolder(fetchImpl: typeof fetch = fetch): Promise<string> {
+export async function resolveFolder(fetchImpl: typeof fetch = fetch): Promise<{ folder: string; nsid?: string }> {
   const state = await readState();
-  if (state.folder) return state.folder;
-  const root = await rpc<ListResult>('files/list_folder', { path: '', recursive: false, limit: 500 }, fetchImpl);
-  const folders = root.entries.filter((e) => e['.tag'] === 'folder');
-  const wanted = config.dropboxFolder.replace(/^\//, '').toLowerCase();
-  const match = folders.find((f) => f.path_lower === `/${wanted}`) ?? folders.find((f) => CAMERA_FOLDER_NAMES.test(f.name ?? ''));
+  if (state.folder) return { folder: state.folder, nsid: state.nsid };
+  const wanted = config.dropboxFolder.toLowerCase();
+  const pick = (folders: { name?: string; path_lower?: string; path_display?: string }[]) =>
+    folders.find((f) => f.path_lower === wanted) ?? folders.find((f) => CAMERA_FOLDER_NAMES.test(f.name ?? ''));
+  const seen: string[] = [];
+
+  // 1. member home namespace (default)
+  const home = await rpc<ListResult>('files/list_folder', { path: '', recursive: false, limit: 500 }, fetchImpl);
+  const homeFolders = home.entries.filter((e) => e['.tag'] === 'folder');
+  seen.push(...homeFolders.map((f) => f.name ?? ''));
+  let match = pick(homeFolders);
+  let nsid: string | undefined;
+
+  // 2. team space root and the member folder inside it
+  if (!match) {
+    const acct = await rpc<{ root_info?: { '.tag': string; root_namespace_id?: string; home_namespace_id?: string; home_path?: string } }>('users/get_current_account', null, fetchImpl);
+    const ri = acct.root_info;
+    if (ri?.root_namespace_id && ri.root_namespace_id !== ri.home_namespace_id) {
+      nsid = ri.root_namespace_id;
+      const paths = ['', ...(ri.home_path ? [ri.home_path] : [])];
+      for (const p of paths) {
+        const r = await rpc<ListResult>('files/list_folder', { path: p, recursive: false, limit: 500 }, fetchImpl, nsid);
+        const folders = r.entries.filter((e) => e['.tag'] === 'folder');
+        seen.push(...folders.map((f) => (p ? `${p}/` : '') + (f.name ?? '')));
+        match = pick(folders);
+        if (match) break;
+        // one level deeper (e.g. team folder / camera)
+        for (const f of folders) {
+          const sub = await rpc<ListResult>('files/list_folder', { path: f.path_lower, recursive: false, limit: 200 }, fetchImpl, nsid);
+          const subFolders = sub.entries.filter((e) => e['.tag'] === 'folder');
+          seen.push(...subFolders.map((x) => `${f.name}/${x.name}`));
+          match = pick(subFolders);
+          if (match) break;
+        }
+        if (match) break;
+      }
+    }
+  }
   if (!match?.path_display) {
-    throw new Error(`Dropbox: camera-upload folder not found. Root folders: ${folders.map((f) => f.name).join(', ') || '(none)'}. Turn on camera uploads in the Dropbox app and upload one photo, or set DROPBOX_FOLDER.`);
+    throw new Error(`Dropbox: camera-upload folder not found. Folders seen: ${seen.join(', ') || '(none)'}. Turn on camera uploads in the Dropbox app and upload one photo, or set DROPBOX_FOLDER.`);
   }
   state.folder = match.path_display;
+  state.nsid = nsid;
   await writeState(state);
-  return state.folder;
+  return { folder: state.folder, nsid };
 }
 
 /**
@@ -148,22 +188,22 @@ export async function resolveFolder(fetchImpl: typeof fetch = fetch): Promise<st
  * set `fromScratch` to import everything already in the folder.
  */
 export async function listNewFiles(opts: { fromScratch?: boolean } = {}, fetchImpl: typeof fetch = fetch): Promise<DropboxFile[]> {
-  const folder = await resolveFolder(fetchImpl);
+  const { folder, nsid } = await resolveFolder(fetchImpl);
   const state = await readState();
   const files: DropboxFile[] = [];
   let result: ListResult;
   if (!state.cursor) {
     if (opts.fromScratch) {
-      result = await rpc<ListResult>('files/list_folder', { path: folder, recursive: false, include_media_info: true, limit: 500 }, fetchImpl);
+      result = await rpc<ListResult>('files/list_folder', { path: folder, recursive: false, include_media_info: true, limit: 500 }, fetchImpl, nsid);
     } else {
-      const latest = await rpc<{ cursor: string }>('files/list_folder/get_latest_cursor', { path: folder, recursive: false, include_media_info: true }, fetchImpl);
+      const latest = await rpc<{ cursor: string }>('files/list_folder/get_latest_cursor', { path: folder, recursive: false, include_media_info: true }, fetchImpl, nsid);
       state.cursor = latest.cursor;
       state.lastRun = new Date().toISOString();
       await writeState(state);
       return [];
     }
   } else {
-    result = await rpc<ListResult>('files/list_folder/continue', { cursor: state.cursor }, fetchImpl);
+    result = await rpc<ListResult>('files/list_folder/continue', { cursor: state.cursor }, fetchImpl, nsid);
   }
   for (;;) {
     for (const e of result.entries) {
@@ -174,7 +214,7 @@ export async function listNewFiles(opts: { fromScratch?: boolean } = {}, fetchIm
     }
     state.cursor = result.cursor;
     if (!result.has_more) break;
-    result = await rpc<ListResult>('files/list_folder/continue', { cursor: result.cursor }, fetchImpl);
+    result = await rpc<ListResult>('files/list_folder/continue', { cursor: result.cursor }, fetchImpl, nsid);
   }
   state.lastRun = new Date().toISOString();
   await writeState(state);
@@ -189,7 +229,8 @@ export async function markSeen(pathLower: string, status: string): Promise<void>
 
 export async function download(pathLower: string, fetchImpl: typeof fetch = fetch): Promise<Buffer> {
   const token = await accessToken(fetchImpl);
-  const r = await fetchImpl('https://content.dropboxapi.com/2/files/download', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Dropbox-API-Arg': JSON.stringify({ path: pathLower }) } });
+  const { nsid } = await readState();
+  const r = await fetchImpl('https://content.dropboxapi.com/2/files/download', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Dropbox-API-Arg': JSON.stringify({ path: pathLower }), ...pathRootHeader(nsid) } });
   if (!r.ok) throw new Error(`Dropbox download ${pathLower}: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
   return Buffer.from(await r.arrayBuffer());
 }
