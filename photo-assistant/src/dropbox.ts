@@ -121,7 +121,7 @@ async function resetCursor(): Promise<void> {
   await writeState(s);
 }
 
-const CAMERA_FOLDER_NAMES = /^(camera uploads|相机上传|相機上傳|カメラアップロード|kamera-uploads|camera-uploads|téléchargements de l'appareil photo|subidas de cámara)$/i;
+const CAMERA_FOLDER_NAMES = /^(camera uploads|camera|相机上传|相機上傳|カメラアップロード|kamera-uploads|camera-uploads|téléchargements de l'appareil photo|subidas de cámara)$/i;
 
 /**
  * Finds the camera-upload folder: the configured DROPBOX_FOLDER if it exists,
