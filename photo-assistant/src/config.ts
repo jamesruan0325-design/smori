@@ -37,6 +37,13 @@ export const config = {
   ntfyTopic: env('NTFY_TOPIC'),
   inboxToken: env('INBOX_TOKEN'),
   contactEmail: env('CONTACT_EMAIL', 'bonniex@smoriwindowfashion.com'),
+  /** ---- website AI assistant (Shopify app proxy) ---- */
+  chatModel: env('CLAUDE_CHAT_MODEL', 'claude-opus-5'),
+  chatEffort: env('CLAUDE_CHAT_EFFORT', 'medium') as 'low' | 'medium' | 'high',
+  chatRatePerHour: Number(env('CHAT_RATE_PER_HOUR', '40')),
+  chatMaxTurns: Number(env('CHAT_MAX_TURNS', '40')),
+  /** Set to true only for local testing without Shopify's proxy signature. */
+  proxySignatureOptional: env('PROXY_SIGNATURE_OPTIONAL', 'false') === 'true',
   apiVersion: env('SHOPIFY_API_VERSION', '2026-07'),
   storeHandle: env('SHOPIFY_STORE_HANDLE', 'smori-9216'),
   /** Optional override of the Admin GraphQL endpoint (used by the fake server in tests). */

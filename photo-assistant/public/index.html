@@ -65,6 +65,7 @@
 <main>
   <aside>
     <button class="btn primary" id="newBtn" style="width:100%;justify-content:center">＋ 新建项目</button>
+    <button class="btn" id="leadsBtn" style="width:100%;justify-content:center;margin-top:8px">网站咨询线索 <span id="leadsCount" class="badge"></span></button>
     <div id="projects" style="margin-top:16px"></div>
   </aside>
   <section id="view"><p style="color:var(--muted)">选择左侧项目，或新建一个项目。</p></section>
@@ -137,6 +138,24 @@ function readFacts(form) {
   delete o.product_custom; return o;
 }
 
+async function loadLeadsCount() { try { const l = await api('/api/leads'); const open = l.filter(x => !x.handled).length; $('#leadsCount').textContent = open ? open + ' 待处理' : l.length ? '全部已处理' : '暂无'; } catch {} }
+$('#leadsBtn').onclick = async () => {
+  current = null; location.hash = 'leads';
+  const leads = await api('/api/leads');
+  $('#view').innerHTML = `<h2>网站咨询线索 <span style="font-size:13px;color:var(--muted)">${leads.length} 条</span></h2>
+    <p style="color:var(--muted);font-size:13px">来自网站 AI 客服的"转人工"表单和对话中留下的联系方式。新线索会同时推送到手机 ntfy。</p>
+    ${leads.length ? leads.map(l => `<div class="panel" style="border-color:${l.handled?'var(--line)':'var(--gold)'}">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div><b style="color:#fff">${esc(l.name||'（未留姓名）')}</b> · ${[l.phone, l.email, l.wechat && '微信 '+l.wechat].filter(Boolean).map(esc).join(' · ')} ${l.city?'· '+esc(l.city):''}
+          <span class="badge">${esc(l.reason)}</span><span class="badge">${l.language==='zh'?'中文':'English'}</span><span class="badge">${l.source==='chat'?'对话中留下':'转人工表单'}</span></div>
+        <div style="font-size:12px;color:var(--muted)">${esc((l.createdAt||'').replace('T',' ').slice(0,16))}</div>
+      </div>
+      <div style="margin-top:8px">${esc(l.interest||'')} ${l.window_count?'· 窗户 '+esc(l.window_count):''} ${l.preferred_time?'· 时间 '+esc(l.preferred_time):''}<br><span style="color:var(--muted)">${esc(l.notes||'')}</span></div>
+      ${l.transcript && l.transcript.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--gold);font-size:12px">查看对话（${l.transcript.length} 条）</summary><div class="log">${l.transcript.map(m => (m.role==='user'?'客户：':'助手：') + esc(m.content)).join('\n')}</div></details>` : ''}
+      <div style="margin-top:10px"><button class="btn small" onclick="api('/api/leads/${l.id}/handled',{method:'POST',body:{handled:${l.handled?'false':'true'}}}).then(()=>$('#leadsBtn').click())">${l.handled?'标记为未处理':'标记为已处理'}</button></div>
+    </div>`).join('') : '<p style="color:var(--muted)">还没有线索。</p>'}`;
+  loadLeadsCount();
+};
 $('#newBtn').onclick = () => {
   current = null;
   $('#view').innerHTML = `<h2>新建项目</h2><form id="newForm">${factsForm()}<div style="margin-top:18px"><button class="btn primary">创建并上传照片</button></div></form>`;
@@ -255,7 +274,7 @@ async function patch(body) { try { await api('/api/projects/'+current.id, {metho
 async function move(id, dir) { const ids = current.photos.map(p => p.id); const i = ids.indexOf(id); const j = i + dir; if (j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; patch({photoOrder: ids}); }
 async function delPhoto(id) { if (!confirm('删除这张照片（含原图）？')) return; try { await api(`/api/projects/${current.id}/photos/${id}`, {method:'DELETE'}); openProject(current.id); } catch (e) { alert(e.message); } }
 
-loadHealth().then(loadProjects).then(() => { const h = location.hash.slice(1); if (h) openProject(h); }).catch(e => { $('#status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; });
+loadHealth().then(loadProjects).then(loadLeadsCount).then(() => { const h = location.hash.slice(1); if (h === 'leads') $('#leadsBtn').click(); else if (h) openProject(h); }).catch(e => { $('#status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; });
 </script>
 </body>
 </html>

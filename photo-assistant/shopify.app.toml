@@ -20,6 +20,13 @@ use_legacy_install_flow = false
 [auth]
 redirect_urls = ["https://smori-photo-assistant.fly.dev/auth/callback"]
 
+# Storefront chat widget calls https://smoriwindowfashion.com/apps/assistant/* ;
+# Shopify signs the request and forwards it to the URL below.
+[app_proxy]
+url = "https://smori-photo-assistant.fly.dev/proxy"
+subpath = "assistant"
+prefix = "apps"
+
 [webhooks]
 api_version = "2026-07"
 

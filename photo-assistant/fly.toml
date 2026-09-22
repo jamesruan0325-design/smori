@@ -19,6 +19,9 @@ primary_region = "lax"
   TIMEZONE = "America/Los_Angeles"
   CLAUDE_SCREEN_MODEL = "claude-sonnet-5"
   NTFY_SERVER = "https://ntfy.sh"
+  CLAUDE_CHAT_MODEL = "claude-opus-5"
+  CLAUDE_CHAT_EFFORT = "medium"
+  CHAT_RATE_PER_HOUR = "40"
 
 [http_service]
   internal_port = 3000

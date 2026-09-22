@@ -13,6 +13,8 @@ import { getSession } from './tokens.js';
 import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConfigured, dropboxConnected, dropboxAccount, readState as dropboxState } from './dropbox.js';
 import { approveAndPublish, finalizeProject, ingestPhoto, readLog, runAutoCycle, startScheduler } from './auto.js';
 import { notifyConfigured, sendNtfy } from './notify.js';
+import { proxyAuth, handleChat, handleLead, handlePing } from './proxy.js';
+import { listLeads, markLead } from './leads.js';
 import { claudeConfigured } from './copy.js';
 import { runGenerate, runSaveDraft, buildMetaobjectFields } from './pipeline.js';
 import { createProject, deletePhotoFiles, getProject, listProjects, photoPath, saveProject, type ProjectFacts } from './store.js';
@@ -38,6 +40,12 @@ app.get('/auth/callback', wrapPlain((req, res) => handleCallback(req, res)));
 app.post('/webhooks/:topic', express.raw({ type: '*/*', limit: '1mb' }), wrapPlain(handleWebhook));
 app.get('/healthz', (_req, res) => { res.json({ ok: true }); });
 app.get('/connect/dropbox/callback', wrapPlain((req, res) => handleDropboxCallback(req, res)));
+
+// ---- storefront assistant via Shopify App Proxy (signed by Shopify; no basic auth) ----
+app.use('/proxy', express.json({ limit: '200kb' }), proxyAuth);
+app.get('/proxy/ping', handlePing);
+app.post('/proxy/chat', wrap(handleChat));
+app.post('/proxy/lead', wrap(handleLead));
 
 // ---- inbox for phone automations (bearer INBOX_TOKEN), multipart field "photos" ----
 app.post('/api/inbox', multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024, files: 50 } }).array('photos', 50), wrap(async (req, res) => {
@@ -122,6 +130,7 @@ app.get('/api/health', wrap(async (_req, res) => {
   }
   const dbxConnected = await dropboxConnected();
   const st = await dropboxState();
+  out.assistant = { model: config.chatModel, proxySignatureOptional: config.proxySignatureOptional };
   out.auto = { enabled: config.autoEnabled, pollMinutes: config.autoPollMinutes, publishConfidence: config.autoPublishConfidence, notify: notifyConfigured(), inbox: Boolean(config.inboxToken) };
   out.dropbox = { configured: dropboxConfigured(), connected: dbxConnected, folder: st.folder ?? config.dropboxFolder, lastRun: st.lastRun ?? null, seen: Object.keys(st.seen).length };
   if (dbxConnected) { try { (out.dropbox as Record<string, unknown>).account = await dropboxAccount(); } catch (e) { (out.dropbox as Record<string, unknown>).error = (e as Error).message; } }
@@ -140,6 +149,10 @@ app.post('/api/notify/test', wrap(async (_req, res) => { res.json(await sendNtfy
 app.get('/api/auto/log', wrap(async (_req, res) => { res.json({ lines: (await readLog(150)).map((l) => JSON.parse(l)) }); }));
 app.post('/api/projects/:id/finalize', wrap(async (req, res) => { res.json(await finalizeProject(param(req, 'id'), undefined, { force: true })); }));
 app.post('/api/projects/:id/publish', wrap(async (req, res) => { res.json(await approveAndPublish(param(req, 'id'), { regenerate: Boolean(req.body?.regenerate) })); }));
+
+// ---- leads from the website assistant ----
+app.get('/api/leads', wrap(async (_req, res) => { res.json(await listLeads()); }));
+app.post('/api/leads/:id/handled', wrap(async (req, res) => { await markLead(param(req, 'id'), Boolean(req.body?.handled ?? true)); res.json({ ok: true }); }));
 
 // ---- projects ----
 app.get('/api/projects', wrap(async (_req, res) => {

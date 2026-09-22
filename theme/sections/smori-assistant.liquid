@@ -1,0 +1,39 @@
+{%- comment -%}
+  SMORI website assistant (AI chat). The widget talks to the SMORI Photo Assistant
+  app through the Shopify App Proxy at {{ proxy_path }}/chat. No keys live in the
+  theme. If the backend is unreachable the widget shows phone/email instead of
+  pretending to answer.
+{%- endcomment -%}
+{%- if section.settings.enabled -%}
+  {{ 'smori-assistant.css' | asset_url | stylesheet_tag }}
+  <div id="smori-assistant"
+       data-endpoint="{{ section.settings.proxy_path | default: '/apps/assistant' }}"
+       data-locale="{{ request.locale.iso_code }}"
+       data-name-en="{{ section.settings.name_en | escape }}"
+       data-name-zh="{{ section.settings.name_zh | escape }}"
+       data-greeting-en="{{ section.settings.greeting_en | escape }}"
+       data-greeting-zh="{{ section.settings.greeting_zh | escape }}"
+       data-phone="{{ section.settings.phone | escape }}"
+       data-email="{{ section.settings.email | escape }}"
+       data-position="{{ section.settings.position }}">
+  </div>
+  <script src="{{ 'smori-assistant.js' | asset_url }}" defer></script>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "AI Assistant (chat)",
+  "settings": [
+    { "type": "paragraph", "content": "Chat widget powered by the SMORI Photo Assistant app. Requires the app's proxy at /apps/assistant. Turn off to hide the widget everywhere." },
+    { "type": "checkbox", "id": "enabled", "label": "Show the assistant", "default": true },
+    { "type": "text", "id": "proxy_path", "label": "App proxy path", "default": "/apps/assistant" },
+    { "type": "select", "id": "position", "label": "Position", "options": [ { "value": "right", "label": "Bottom right" }, { "value": "left", "label": "Bottom left" } ], "default": "right" },
+    { "type": "text", "id": "name_en", "label": "Assistant name (EN)", "default": "SMORI Assistant" },
+    { "type": "text", "id": "name_zh", "label": "助手名称（中文）", "default": "SMORI 智能顾问" },
+    { "type": "textarea", "id": "greeting_en", "label": "Greeting (EN)", "default": "Hi, I can help with shades, blackout and privacy options, motorization, measurement and installation. Prices, lead times and warranty are confirmed by our team. How can I help?" },
+    { "type": "textarea", "id": "greeting_zh", "label": "欢迎语（中文）", "default": "您好，我可以解答窗帘产品、遮光与隐私、电动控制、测量和安装方面的问题。价格、交期和保修需要由我们的顾问确认。请问有什么可以帮您？" },
+    { "type": "text", "id": "phone", "label": "Phone for human handoff", "default": "(949) 880-1322" },
+    { "type": "text", "id": "email", "label": "Email for human handoff", "default": "BonnieX@smoriwindowfashion.com" }
+  ]
+}
+{% endschema %}
