@@ -94,3 +94,25 @@ test('ingest -> group -> finalize: confident project is published, uncertain one
     assert.equal(fake.state.definition!.fields.length, FIELD_DEFINITIONS.length);
   }
 });
+
+test('dropbox photos keep no local original; prune removes legacy copies; disk status reads', async () => {
+  const { pruneStorage, diskStatus } = await import('../src/auto.js');
+  const deps = { screen: async () => screenOf('Duette', 0.9), geocode: async () => 'Irvine, CA', notify: async () => {}, now: () => new Date('2026-09-20T18:00:00Z') };
+  const r = await ingestPhoto(await img('#ff0000'), 'IMG_9.jpg', 'dropbox', deps, { takenAt: '2026-09-20T18:00:00Z', lat: 33.7, lng: -117.8 }, '/Camera Uploads/IMG_9.jpg');
+  const p = await getProject(String(r.projectId));
+  const ph = p.photos[p.photos.length - 1];
+  assert.equal(ph.originalOnServer, false);
+  assert.equal(ph.dropboxPath, '/Camera Uploads/IMG_9.jpg');
+  const origDir = path.join(tmp, 'projects', p.id, 'original');
+  assert.equal((await fs.readdir(origDir)).filter((n) => n.startsWith(ph.id)).length, 0, 'no original stored');
+  // simulate a legacy photo whose original was stored before this change
+  const legacy = { ...ph, id: '99-legacy', originalOnServer: undefined };
+  p.photos.push(legacy as any); await saveProject(p);
+  await fs.writeFile(path.join(origDir, '99-legacy.jpg'), Buffer.alloc(2048));
+  await fs.writeFile(path.join(tmp, 'stray.json.tmp'), 'x');
+  const pr = await pruneStorage();
+  assert.ok(pr.removedFiles >= 2);
+  assert.equal((await getProject(p.id)).photos.find((x) => x.id === '99-legacy')!.originalOnServer, false);
+  const d = await diskStatus();
+  assert.ok(d.totalMb > 0 && d.freeMb >= 0);
+});

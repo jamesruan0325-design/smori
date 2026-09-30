@@ -94,6 +94,7 @@ async function loadHealth() {
     (health.dropbox.configured && !health.dropbox.connected ? '<a class="btn small" href="/connect/dropbox">连接 Dropbox</a>' : '') +
     (health.dropbox.connected ? ` <button class="btn small" onclick="autoRun()">立即同步</button> <button class="btn small" onclick="if(confirm('断开后不再自动导入，确定？')) api('/api/dropbox/disconnect',{method:'POST'}).then(loadHealth)">断开</button>` : '') +
     ` &nbsp;|&nbsp; 自动流水线: <b class="${health.auto.enabled?'ok':'warn'}">${health.auto.enabled ? `每 ${health.auto.pollMinutes} 分钟，把握度 ≥ ${Math.round(health.auto.publishConfidence*100)}% 自动发布` : '已关闭'}</b>` +
+    (health.disk ? ` &nbsp;|&nbsp; 磁盘: <b class="${health.disk.low?'err':'ok'}">已用 ${health.disk.usedPct}%（剩 ${health.disk.freeMb} MB）</b>${health.disk.low ? ' <button class="btn small" onclick="api(\'/api/storage/prune\',{method:\'POST\',body:{}}).then(r=>{alert(\'已清理 \'+r.removedFiles+\' 个文件，释放 \'+r.freedMb+\' MB\');loadHealth()}).catch(e=>alert(e.message))">清理</button>' : ''}` : '') +
     ` &nbsp;|&nbsp; 通知: <b class="${health.auto.notify?'ok':'warn'}">${health.auto.notify ? 'ntfy 已配置' : '未配置 NTFY_TOPIC'}</b>` +
     (health.auto.notify ? ` <button class="btn small" onclick="api('/api/notify/test',{method:'POST',body:{}}).then(r=>alert('已发送，消息 ID '+r.id+'。手机几秒内应收到。')).catch(e=>alert('发送失败：'+e.message))">发送测试通知</button>` : '');
 }
@@ -188,7 +189,7 @@ async function openProject(id) {
         <div class="a">
           <button onclick="patch({coverId:'${ph.id}'})">设为封面</button>
           <button onclick="move('${ph.id}',-1)">←</button><button onclick="move('${ph.id}',1)">→</button>
-          <a href="/files/${p.id}/original/${ph.id}${ph.mime==='image/png'?'.png':ph.mime==='image/webp'?'.webp':'.jpg'}" target="_blank"><button>原图</button></a>
+          ${ph.originalOnServer === false ? `<button disabled title="${esc(ph.dropboxPath || '')}">原图在 Dropbox</button>` : `<a href="/files/${p.id}/original/${ph.id}${ph.mime==='image/png'?'.png':ph.mime==='image/webp'?'.webp':'.jpg'}" target="_blank"><button>原图</button></a>`}
           ${ph.shopifyFileId?'':`<button onclick="delPhoto('${ph.id}')">删除</button>`}
         </div>
       </div>`).join('')}</div>

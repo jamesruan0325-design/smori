@@ -95,7 +95,7 @@ export function decideProduct(screens: PhotoScreen[]): { product: string; catego
 export interface IngestResult { action: 'discarded' | 'added'; projectId?: string; screen: PhotoScreen; reason?: string }
 
 /** Screens one photo and files it into a collecting project (or discards it). */
-export async function ingestPhoto(buffer: Buffer, name: string, source: 'dropbox' | 'inbox', deps: AutoDeps = defaultDeps, metaHint: { takenAt?: string; lat?: number; lng?: number } = {}): Promise<IngestResult> {
+export async function ingestPhoto(buffer: Buffer, name: string, source: 'dropbox' | 'inbox', deps: AutoDeps = defaultDeps, metaHint: { takenAt?: string; lat?: number; lng?: number } = {}, sourcePath?: string): Promise<IngestResult> {
   const meta = { ...(await readPhotoMeta(buffer)), ...Object.fromEntries(Object.entries(metaHint).filter(([, v]) => v !== undefined)) };
   if (!meta.takenAt) meta.takenAt = deps.now().toISOString();
   // screening on a small JPEG (also validates that sharp can read the file)
@@ -113,8 +113,9 @@ export async function ingestPhoto(buffer: Buffer, name: string, source: 'dropbox
     project.auto = { source, status: 'collecting', lastTakenAt: meta.takenAt, lastIngestAt: deps.now().toISOString() };
     await log('project.new', { projectId: project.id, name, takenAt: meta.takenAt });
   }
-  const { photo } = await processUpload(project.id, buffer, name, project.photos.length);
-  Object.assign(photo, { takenAt: meta.takenAt, lat: meta.lat, lng: meta.lng, source, screen });
+  // Dropbox keeps the untouched original, so only the web copy and thumbnail are stored here.
+  const { photo } = await processUpload(project.id, buffer, name, project.photos.length, { keepOriginal: source !== 'dropbox' });
+  Object.assign(photo, { takenAt: meta.takenAt, lat: meta.lat, lng: meta.lng, source, screen, dropboxPath: source === 'dropbox' ? sourcePath : undefined });
   project.photos.push(photo);
   if (!project.photos.some((p) => p.cover)) photo.cover = true;
   project.auto!.lastIngestAt = deps.now().toISOString();
@@ -230,6 +231,58 @@ export async function approveAndPublish(projectId: string, opts: { regenerate?: 
 /* ------------------------------------------------------------------ */
 
 let running = false;
+let lowDiskNotified = '';
+
+export interface DiskStatus { totalMb: number; freeMb: number; usedPct: number; low: boolean }
+
+/** Free space on the data volume; "low" below 300 MB or 7 %. */
+export async function diskStatus(): Promise<DiskStatus> {
+  await fs.mkdir(config.dataDir, { recursive: true });
+  const st = await fs.statfs(config.dataDir);
+  const totalMb = Math.round((st.blocks * st.bsize) / 1048576);
+  const freeMb = Math.round((st.bavail * st.bsize) / 1048576);
+  const usedPct = totalMb ? Math.round(((totalMb - freeMb) / totalMb) * 100) : 0;
+  return { totalMb, freeMb, usedPct, low: freeMb < 300 || freeMb / Math.max(totalMb, 1) < 0.07 };
+}
+
+/**
+ * Frees space without losing anything that exists nowhere else:
+ * - originals of Dropbox photos (Dropbox still has them)
+ * - leftover *.tmp files from interrupted writes
+ */
+export async function pruneStorage(): Promise<{ removedFiles: number; freedMb: number }> {
+  let removed = 0, freed = 0;
+  for (const p of await listProjects()) {
+    let changed = false;
+    for (const ph of p.photos) {
+      if (ph.source !== 'dropbox' || ph.originalOnServer === false) continue;
+      const dir = path.join(config.dataDir, 'projects', p.id, 'original');
+      let names: string[] = [];
+      try { names = (await fs.readdir(dir)).filter((n) => n.startsWith(ph.id)); } catch { /* none */ }
+      for (const n of names) {
+        const f = path.join(dir, n);
+        try { freed += (await fs.stat(f)).size; await fs.rm(f); removed++; } catch { /* ignore */ }
+      }
+      ph.originalOnServer = false;
+      changed = true;
+    }
+    if (changed) await saveProject(p);
+  }
+  // stray temp files
+  const walk = async (d: string): Promise<void> => {
+    let entries: import('node:fs').Dirent[] = [];
+    try { entries = await fs.readdir(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) await walk(f);
+      else if (e.name.endsWith('.tmp')) { try { freed += (await fs.stat(f)).size; await fs.rm(f); removed++; } catch { /* ignore */ } }
+    }
+  };
+  await walk(config.dataDir);
+  const freedMb = Math.round(freed / 1048576);
+  await log('prune', { removedFiles: removed, freedMb });
+  return { removedFiles: removed, freedMb };
+}
 export interface CycleReport { pulled: number; added: number; discarded: number; finalized: string[]; skipped: number; errors: string[] }
 
 export async function runAutoCycle(deps: AutoDeps = defaultDeps, opts: { fromScratch?: boolean } = {}): Promise<CycleReport> {
@@ -237,7 +290,15 @@ export async function runAutoCycle(deps: AutoDeps = defaultDeps, opts: { fromScr
   if (running) { report.errors.push('already running'); return report; }
   running = true;
   try {
-    if (await dropbox.dropboxConnected()) {
+    const disk = await diskStatus();
+    if (disk.low) await pruneStorage();
+    const after = disk.low ? await diskStatus() : disk;
+    if (after.low) {
+      report.errors.push(`disk almost full (${after.freeMb} MB free); new photos are waiting in Dropbox`);
+      await log('disk.low', { freeMb: after.freeMb, usedPct: after.usedPct });
+      const today = new Date().toISOString().slice(0, 10);
+      if (lowDiskNotified !== today) { lowDiskNotified = today; await deps.notify('SMORI 照片助手：磁盘快满了', `服务器只剩 ${after.freeMb} MB，已暂停导入新照片（照片仍在 Dropbox，不会丢失）。请扩容磁盘。`); }
+    } else if (await dropbox.dropboxConnected()) {
       const files = await dropbox.listNewFiles({ fromScratch: opts.fromScratch });
       report.pulled = files.length;
       for (const f of files) {
@@ -245,7 +306,7 @@ export async function runAutoCycle(deps: AutoDeps = defaultDeps, opts: { fromScr
           if (/\.(heic|heif)$/i.test(f.name)) { await dropbox.markSeen(f.path_lower, 'skipped-heic'); report.skipped++; await log('skip.heic', { name: f.name }); continue; }
           const buf = await dropbox.download(f.path_lower);
           const hint = { takenAt: f.media_info?.metadata?.time_taken, lat: f.media_info?.metadata?.location?.latitude, lng: f.media_info?.metadata?.location?.longitude };
-          const r = await ingestPhoto(buf, f.name, 'dropbox', deps, hint);
+          const r = await ingestPhoto(buf, f.name, 'dropbox', deps, hint, f.path_display);
           await dropbox.markSeen(f.path_lower, r.action);
           if (r.action === 'added') report.added++; else report.discarded++;
         } catch (e) {
@@ -273,6 +334,7 @@ export async function runAutoCycle(deps: AutoDeps = defaultDeps, opts: { fromScr
 export function startScheduler(deps: AutoDeps = defaultDeps): void {
   if (!config.autoEnabled) { console.log('auto pipeline disabled (AUTO_ENABLED=false)'); return; }
   const ms = Math.max(1, config.autoPollMinutes) * 60_000;
+  pruneStorage().catch((e) => console.error('prune failed', e));
   setTimeout(() => runAutoCycle(deps).catch((e) => console.error('auto cycle failed', e)), 15_000);
   setInterval(() => runAutoCycle(deps).catch((e) => console.error('auto cycle failed', e)), ms);
   console.log(`auto pipeline: every ${config.autoPollMinutes} min`);

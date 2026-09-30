@@ -19,7 +19,8 @@ export interface ProcessedPhoto {
  * Stores the untouched original, then writes an EXIF-stripped, auto-rotated,
  * resized JPEG for the web and a thumbnail. Returns the Photo record.
  */
-export async function processUpload(projectId: string, buffer: Buffer, originalName: string, order: number): Promise<ProcessedPhoto> {
+export async function processUpload(projectId: string, buffer: Buffer, originalName: string, order: number, opts: { keepOriginal?: boolean } = {}): Promise<ProcessedPhoto> {
+  const keepOriginal = opts.keepOriginal !== false;
   const meta = await sharp(buffer).metadata();
   const mime = meta.format ? `image/${meta.format}` : 'application/octet-stream';
   if (!ACCEPTED.has(mime)) {
@@ -29,8 +30,8 @@ export async function processUpload(projectId: string, buffer: Buffer, originalN
   const base = `${String(order + 1).padStart(2, '0')}-${id}`;
   const ext = mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : mime === 'image/tiff' ? '.tif' : '.jpg';
 
-  // 1. original, byte-for-byte
-  await fs.writeFile(photoPath(projectId, 'original', base + ext), buffer);
+  // 1. original, byte-for-byte (skipped when the original already lives elsewhere, e.g. Dropbox)
+  if (keepOriginal) await fs.writeFile(photoPath(projectId, 'original', base + ext), buffer);
 
   // 2. web copy: rotate() applies EXIF orientation, then all metadata (incl. GPS) is dropped
   const web = sharp(buffer).rotate().resize({ width: WEB_MAX_EDGE, height: WEB_MAX_EDGE, fit: 'inside', withoutEnlargement: true })
@@ -51,6 +52,7 @@ export async function processUpload(projectId: string, buffer: Buffer, originalN
     height: webInfo.height,
     order,
     cover: order === 0,
+    originalOnServer: keepOriginal,
   };
   return { photo, webPath: photoPath(projectId, 'web', base + '.jpg') };
 }

@@ -121,7 +121,9 @@ export async function readState(): Promise<DropboxState> {
 
 export async function writeState(s: DropboxState): Promise<void> {
   await fs.mkdir(path.dirname(stateFile()), { recursive: true });
-  await fs.writeFile(stateFile(), JSON.stringify(s, null, 2));
+  const tmp = stateFile() + '.tmp';
+  await fs.writeFile(tmp, JSON.stringify(s, null, 2));
+  await fs.rename(tmp, stateFile());
 }
 
 async function resetCursor(): Promise<void> {

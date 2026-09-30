@@ -31,6 +31,9 @@ export interface Photo {
   lat?: number;
   lng?: number;
   source?: string;
+  /** Where the untouched original lives when it is not kept on this server (e.g. Dropbox camera uploads). */
+  dropboxPath?: string;
+  originalOnServer?: boolean;
   screen?: PhotoScreen;
   shopifyFileId?: string;
   shopifyUrl?: string;

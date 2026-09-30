@@ -11,7 +11,7 @@ import { beginAuth, handleCallback, isValidShop, oauthConfigured, verifyQueryHma
 import { handleWebhook } from './webhooks.js';
 import { getSession } from './tokens.js';
 import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConfigured, dropboxConnected, dropboxAccount, readState as dropboxState } from './dropbox.js';
-import { approveAndPublish, finalizeProject, ingestPhoto, readLog, runAutoCycle, startScheduler } from './auto.js';
+import { approveAndPublish, diskStatus, finalizeProject, ingestPhoto, pruneStorage, readLog, runAutoCycle, startScheduler } from './auto.js';
 import { notifyConfigured, sendNtfy } from './notify.js';
 import { proxyAuth, handleChat, handleLead, handlePing } from './proxy.js';
 import { listLeads, markLead } from './leads.js';
@@ -131,6 +131,7 @@ app.get('/api/health', wrap(async (_req, res) => {
   const dbxConnected = await dropboxConnected();
   const st = await dropboxState();
   out.assistant = { model: config.chatModel, proxySignatureOptional: config.proxySignatureOptional };
+  try { out.disk = await diskStatus(); } catch { out.disk = null; }
   out.auto = { enabled: config.autoEnabled, pollMinutes: config.autoPollMinutes, publishConfidence: config.autoPublishConfidence, notify: notifyConfigured(), inbox: Boolean(config.inboxToken) };
   out.dropbox = { configured: dropboxConfigured(), connected: dbxConnected, folder: st.folder ?? config.dropboxFolder, lastRun: st.lastRun ?? null, seen: Object.keys(st.seen).length };
   if (dbxConnected) { try { (out.dropbox as Record<string, unknown>).account = await dropboxAccount(); } catch (e) { (out.dropbox as Record<string, unknown>).error = (e as Error).message; } }
@@ -146,6 +147,7 @@ app.get('/connect/dropbox', (req, res) => beginDropboxAuth(req, res));
 app.post('/api/dropbox/disconnect', wrap(async (_req, res) => { await disconnectDropbox(); res.json({ ok: true }); }));
 app.post('/api/auto/run', wrap(async (req, res) => { res.json(await runAutoCycle(undefined, { fromScratch: Boolean(req.body?.fromScratch) })); }));
 app.post('/api/notify/test', wrap(async (_req, res) => { res.json(await sendNtfy('SMORI 照片助手测试', `测试通知 ${new Date().toLocaleString('zh-CN', { timeZone: config.timezone })}`, config.appUrl)); }));
+app.post('/api/storage/prune', wrap(async (_req, res) => { const r = await pruneStorage(); res.json({ ...r, disk: await diskStatus() }); }));
 app.get('/api/auto/log', wrap(async (_req, res) => { res.json({ lines: (await readLog(150)).map((l) => JSON.parse(l)) }); }));
 app.post('/api/projects/:id/finalize', wrap(async (req, res) => { res.json(await finalizeProject(param(req, 'id'), undefined, { force: true })); }));
 app.post('/api/projects/:id/publish', wrap(async (req, res) => { res.json(await approveAndPublish(param(req, 'id'), { regenerate: Boolean(req.body?.regenerate) })); }));
