@@ -549,7 +549,9 @@
         "drapery": "布藝窗簾",
         "shutters": "百葉窗",
         "commercial": "商業專案"
-      }
+      },
+      "prev": "上一頁",
+      "next": "下一頁"
     }
   }
 }

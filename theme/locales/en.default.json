@@ -549,7 +549,9 @@
         "drapery": "Drapery",
         "shutters": "Shutters",
         "commercial": "Commercial"
-      }
+      },
+      "prev": "Previous",
+      "next": "Next"
     }
   }
 }

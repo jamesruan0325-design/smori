@@ -115,3 +115,6 @@
     .smori-lightbox-prev { left: 8px; }
     .smori-lightbox-next { right: 8px; }
 }
+
+.cases-pagination { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 56px; }
+.cases-page { font-size: 12px; letter-spacing: 2px; color: var(--text-light); }

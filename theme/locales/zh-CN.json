@@ -549,7 +549,9 @@
         "drapery": "布艺窗帘",
         "shutters": "百叶窗",
         "commercial": "商业项目"
-      }
+      },
+      "prev": "上一页",
+      "next": "下一页"
     }
   }
 }

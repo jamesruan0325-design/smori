@@ -3,22 +3,21 @@
 
 {%- liquid
   assign lang = request.locale.iso_code | slice: 0, 2
-  assign type = section.settings.metaobject_type | default: 'installation_case'
-  assign entries = metaobjects[type].values
-  assign entry_count = 0
-  if entries
-    assign entry_count = entries.size
-  endif
+  assign entry_count = metaobjects.installation_case.values_count | default: 0
   assign source = 'blocks'
   if entry_count > 0
     assign source = 'metaobjects'
   endif
+  assign view_all_url = section.settings.view_all_url | default: '/pages/installations'
+  assign per_page = section.settings.max_cases
   assign known_categories = 'sheer,blackout,signature,motorized,drapery,shutters,commercial' | split: ','
   assign present = ''
   assign max_cases = section.settings.max_cases
   assign rendered = 0
 -%}
 
+{%- paginate metaobjects.installation_case.values by per_page -%}
+{%- assign entries = metaobjects.installation_case.values -%}
 <section class="cases{% if section.settings.page_mode %} cases--page{% endif %}" id="cases" data-smori-cases>
   <div class="container">
     <div class="section-header">
@@ -154,13 +153,20 @@
       </div>
     {%- endif -%}
 
-    {%- if section.settings.show_view_all and section.settings.view_all_url != blank and rendered > 0 -%}
+    {%- if section.settings.page_mode and paginate.pages > 1 -%}
+      <nav class="cases-pagination" aria-label="Pagination">
+        {%- if paginate.previous -%}<a class="btn btn-secondary" href="{{ paginate.previous.url }}#cases">&larr; {{ 'smori.cases.prev' | t }}</a>{%- endif -%}
+        <span class="cases-page">{{ paginate.current_page }} / {{ paginate.pages }}</span>
+        {%- if paginate.next -%}<a class="btn btn-secondary" href="{{ paginate.next.url }}#cases">{{ 'smori.cases.next' | t }} &rarr;</a>{%- endif -%}
+      </nav>
+    {%- elsif section.settings.show_view_all and rendered > 0 and section.settings.page_mode == false -%}
       <div class="cases-footer">
-        <a href="{{ section.settings.view_all_url }}" class="btn btn-secondary">{{ section.settings.view_all_text | default: 'View All Projects' }}</a>
+        <a href="{{ view_all_url }}" class="btn btn-secondary">{{ section.settings.view_all_text | default: 'View All Projects' }}{% if entry_count > rendered %} ({{ entry_count }}){% endif %}</a>
       </div>
     {%- endif -%}
   </div>
 </section>
+{%- endpaginate -%}
 
 {% schema %}
 {
@@ -195,13 +201,6 @@
       "content": "Data source"
     },
     {
-      "type": "text",
-      "id": "metaobject_type",
-      "label": "Metaobject type",
-      "default": "installation_case",
-      "info": "Leave as is unless the metaobject definition was created with a different type handle."
-    },
-    {
       "type": "checkbox",
       "id": "featured_only",
       "label": "Show featured cases only",
@@ -210,7 +209,7 @@
     {
       "type": "range",
       "id": "max_cases",
-      "label": "Maximum cases to show",
+      "label": "Cases to show (per page on the full list page)",
       "min": 3,
       "max": 48,
       "step": 3,
@@ -248,7 +247,7 @@
       "type": "url",
       "id": "view_all_url",
       "label": "Button link",
-      "info": "Usually the page that uses the 'installation-cases' template, e.g. /pages/installations"
+      "info": "Defaults to /pages/installations when empty"
     }
   ],
   "blocks": [
