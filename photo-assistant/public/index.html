@@ -93,13 +93,13 @@ async function loadHealth() {
     `<br>Dropbox: <b class="${health.dropbox.connected?'ok':'warn'}">${!health.dropbox.configured ? '未配置 DROPBOX_APP_KEY' : health.dropbox.connected ? `已连接 ${esc(health.dropbox.account?.email || '')}（${esc(health.dropbox.folder)}，已处理 ${health.dropbox.seen} 张）` : '未连接'}</b> ` +
     (health.dropbox.configured && !health.dropbox.connected ? '<a class="btn small" href="/connect/dropbox">连接 Dropbox</a>' : '') +
     (health.dropbox.connected ? ` <button class="btn small" onclick="autoRun()">立即同步</button> <button class="btn small" onclick="if(confirm('断开后不再自动导入，确定？')) api('/api/dropbox/disconnect',{method:'POST'}).then(loadHealth)">断开</button>` : '') +
-    ` &nbsp;|&nbsp; 自动流水线: <b class="${health.auto.enabled?'ok':'warn'}">${health.auto.enabled ? `每 ${health.auto.pollMinutes} 分钟，把握度 ≥ ${Math.round(health.auto.publishConfidence*100)}% 自动发布` : '已关闭'}</b>` +
+    ` &nbsp;|&nbsp; 自动流水线: <b class="${health.auto.enabled?'ok':'warn'}">${health.auto.enabled ? (health.auto.autoPublish ? `每 ${health.auto.pollMinutes} 分钟，把握度 ≥ ${Math.round(health.auto.publishConfidence*100)}% 自动发布` : `每 ${health.auto.pollMinutes} 分钟，只建草稿（人工发布）`) : '已关闭'}</b>` +
     (health.disk ? ` &nbsp;|&nbsp; 磁盘: <b class="${health.disk.low?'err':'ok'}">已用 ${health.disk.usedPct}%（剩 ${health.disk.freeMb} MB）</b>${health.disk.low ? ' <button class="btn small" onclick="api(\'/api/storage/prune\',{method:\'POST\',body:{}}).then(r=>{alert(\'已清理 \'+r.removedFiles+\' 个文件，释放 \'+r.freedMb+\' MB\');loadHealth()}).catch(e=>alert(e.message))">清理</button>' : ''}` : '') +
     ` &nbsp;|&nbsp; 通知: <b class="${health.auto.notify?'ok':'warn'}">${health.auto.notify ? 'ntfy 已配置' : '未配置 NTFY_TOPIC'}</b>` +
     (health.auto.notify ? ` <button class="btn small" onclick="api('/api/notify/test',{method:'POST',body:{}}).then(r=>alert('已发送，消息 ID '+r.id+'。手机几秒内应收到。')).catch(e=>alert('发送失败：'+e.message))">发送测试通知</button>` : '');
 }
 async function autoRun() { try { const r = await api('/api/auto/run', {method:'POST', body:{}}); alert(`同步完成：新照片 ${r.pulled}，加入案例 ${r.added}，丢弃 ${r.discarded}，完成案例 ${r.finalized.length}${r.errors.length ? '\n错误：' + r.errors.join('\n') : ''}`); loadHealth(); loadProjects(); if (current) openProject(current.id); } catch (e) { alert(e.message); } }
-const AUTO_LABEL = { collecting: '收集中', processing: '处理中', review: '待确认', published: '已发布', error: '出错' };
+const AUTO_LABEL = { collecting: '收集中', processing: '处理中', review: '草稿待发布', published: '已发布', error: '出错' };
 async function setup() { try { const r = await api('/api/setup', {method:'POST'}); alert('定义 ' + r.action + '：' + r.definition.fieldKeys.join(', ')); loadHealth(); } catch (e) { alert(e.message); } }
 
 async function loadProjects() {
@@ -171,7 +171,7 @@ async function openProject(id) {
     ${p.auto ? `<div class="panel" style="border-color:${p.auto.status==='review'?'var(--warn)':p.auto.status==='published'?'var(--ok)':'var(--line)'}">
         <b>自动导入 · ${AUTO_LABEL[p.auto.status] || p.auto.status}</b>${p.auto.reason ? ` — ${esc(p.auto.reason)}` : ''}${p.auto.error ? ` <span class="err">${esc(p.auto.error)}</span>` : ''}
         ${p.auto.votes && Object.keys(p.auto.votes).length ? `<div style="font-size:12px;color:var(--muted);margin-top:6px">AI 对产品的判断：${Object.entries(p.auto.votes).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${esc(k)} ${v.toFixed(1)}`).join(' · ')}${p.auto.confidence!==undefined?` · 总把握度 ${Math.round(p.auto.confidence*100)}%`:''}</div>` : ''}
-        ${p.auto.status==='review' ? `<div style="margin-top:10px;font-size:13px">请在下方"项目信息"里确认产品型号和地点并保存，然后点 <b>确认并发布</b>。</div>` : ''}
+        ${p.auto.status==='review' ? `<div style="margin-top:10px;font-size:13px">满意的话，检查下方产品型号、地点和文案（可修改后保存），再点底部 <b>更新并发布到网站</b>。不满意就不用管，它不会出现在网站上；也可以在 Shopify 后台删除这条草稿。</div>` : ''}
         ${p.auto.status==='collecting' ? `<div style="margin-top:8px"><button class="btn small" onclick="finalizeNow('${p.id}')">现在整理（不再等新照片）</button></div>` : ''}
       </div>` : ''}
     ${p.shopify ? `<div class="panel ok">✔ ${p.shopify.dryRun ? '模拟运行完成（未写入 Shopify）' : p.shopify.status === 'ACTIVE' ? `已发布到网站：${esc(p.shopify.handle)}` : `已保存为 Shopify 草稿：${esc(p.shopify.handle)}`} ${p.shopify.adminUrl ? `— <a href="${p.shopify.adminUrl}" target="_blank">在后台打开</a>` : ''}</div>` : ''}

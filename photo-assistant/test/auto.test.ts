@@ -9,6 +9,7 @@ const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'smori-auto-'));
 process.env.DATA_DIR = tmp;
 process.env.SHOPIFY_ADMIN_TOKEN = 'shpat_fake';
 process.env.SHOPIFY_APP_URL = 'https://app.example.com';
+process.env.AUTO_PUBLISH = 'true';
 process.env.AUTO_PUBLISH_CONFIDENCE = '0.8';
 process.env.PROJECT_CLOSE_HOURS = '6';
 const { startFakeShopify } = await import('./fake-shopify.js');

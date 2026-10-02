@@ -176,7 +176,15 @@ export async function finalizeProject(projectId: string, deps: AutoDeps = defaul
     project = await getProject(project.id);
     project.auto!.finalizedAt = deps.now().toISOString();
 
-    if (!problems.length && project.shopify?.metaobjectId) {
+    if (!config.autoPublish && project.shopify?.metaobjectId) {
+      project.auto!.status = 'review';
+      project.auto!.reason = problems.length
+        ? `已建草稿，发布前请检查：${problems.join('；')}`
+        : `已建草稿：${project.facts.product_name}，把握度 ${Math.round(decision.confidence * 100)}%，满意后再发布`;
+      await saveProject(project);
+      await log('draft', { projectId, product: project.facts.product_name, confidence: decision.confidence, problems });
+      await deps.notify('SMORI 新案例草稿', `${project.copy?.title_zh ?? project.copy?.title ?? project.id}\n${project.facts.product_name || '型号待定'} · ${project.facts.location || '地点待定'} · ${project.photos.length} 张\n满意的话在照片助手或 Shopify 后台发布`, uiUrl);
+    } else if (!problems.length && project.shopify?.metaobjectId) {
       await updateMetaobject(project.shopify.metaobjectId, null, 'ACTIVE');
       project.shopify.status = 'ACTIVE';
       project.auto!.status = 'published';

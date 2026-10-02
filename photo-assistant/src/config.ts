@@ -24,6 +24,8 @@ export const config = {
   /** ---- automatic pipeline ---- */
   autoEnabled: env('AUTO_ENABLED', 'true') !== 'false',
   autoPollMinutes: Number(env('AUTO_POLL_MINUTES', '10')),
+  /** false (default): the pipeline only creates drafts; a person publishes from Shopify or the assistant UI. */
+  autoPublish: env('AUTO_PUBLISH', 'false') === 'true',
   autoPublishConfidence: Number(env('AUTO_PUBLISH_CONFIDENCE', '0.8')),
   clusterGapHours: Number(env('CLUSTER_GAP_HOURS', '8')),
   clusterRadiusMeters: Number(env('CLUSTER_RADIUS_METERS', '400')),
