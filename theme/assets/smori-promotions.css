@@ -1,0 +1,21 @@
+/* SMORI — manufacturer promotions */
+.promos { padding: 100px 0; background: var(--cream); }
+.promos .section-header { margin-bottom: 48px; }
+.promos-empty { text-align: center; padding: 28px; border: 1px dashed var(--border); color: var(--text-light); font-size: 13px; margin-bottom: 24px; }
+.promos-grid { display: grid; gap: 28px; grid-template-columns: repeat(2, 1fr); }
+.promos-grid--1 { grid-template-columns: minmax(0, 760px); justify-content: center; }
+.promos-grid--3 { grid-template-columns: repeat(3, 1fr); }
+.promo-card { background: #0d0d0d; border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; transition: border-color .4s var(--ease); }
+.promo-card:hover { border-color: var(--gold-dark); }
+.promo-media { aspect-ratio: 16 / 9; overflow: hidden; background: #1a1a1a; }
+.promo-media img { width: 100%; height: 100%; object-fit: cover; }
+.promo-body { padding: 32px 34px 34px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.promo-brand { font-size: 11px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; color: var(--gold); min-height: 20px; }
+.promo-logo { max-height: 34px; width: auto; filter: brightness(0) invert(1); opacity: .9; }
+.promo-title { font-family: var(--serif); font-size: 30px; font-weight: 400; color: var(--charcoal); line-height: 1.2; }
+.promo-offer { font-family: var(--serif); font-size: 22px; font-style: italic; color: var(--gold-light); line-height: 1.35; }
+.promo-details { font-size: 14px; color: var(--text); line-height: 1.75; }
+.promo-dates { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--gold); }
+.promo-btn { align-self: flex-start; margin-top: 10px; }
+.promo-terms { font-size: 11px; color: var(--text-light); line-height: 1.6; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border); }
+@media (max-width: 992px) { .promos { padding: 80px 0; } .promos-grid, .promos-grid--3 { grid-template-columns: 1fr; } .promo-title { font-size: 26px; } }

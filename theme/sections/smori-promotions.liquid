@@ -1,0 +1,165 @@
+{%- comment -%}
+  Manufacturer promotions (Hunter Douglas, ALTA, …). One block per offer.
+  Each block hides itself after its end date; the whole section hides when no
+  offer is active. Text is shown in Chinese for zh visitors when provided.
+{%- endcomment -%}
+{%- liquid
+  assign lang = request.locale.iso_code | slice: 0, 2
+  assign today = 'now' | date: '%Y-%m-%d'
+  assign active = 0
+  for block in section.blocks
+    assign starts = block.settings.start_date | strip
+    assign ends = block.settings.end_date | strip
+    if starts != blank and starts > today
+      continue
+    endif
+    if ends != blank and ends < today
+      continue
+    endif
+    assign active = active | plus: 1
+  endfor
+-%}
+
+{%- if section.settings.enabled and active > 0 or request.design_mode -%}
+{{ 'smori-promotions.css' | asset_url | stylesheet_tag }}
+<section class="promos" id="promotions">
+  <div class="container">
+    <div class="section-header">
+      {%- liquid
+        assign label = section.settings.section_label
+        assign heading = section.settings.heading
+        assign description = section.settings.description
+        if lang == 'zh'
+          if section.settings.section_label_zh != blank
+            assign label = section.settings.section_label_zh
+          endif
+          if section.settings.heading_zh != blank
+            assign heading = section.settings.heading_zh
+          endif
+          if section.settings.description_zh != blank
+            assign description = section.settings.description_zh
+          endif
+        endif
+      -%}
+      {%- if label != blank -%}<span class="section-label">{{ label }}</span>{%- endif -%}
+      <h2 class="section-title">{{ heading }}</h2>
+      {%- if description != blank -%}<p class="section-description">{{ description }}</p>{%- endif -%}
+    </div>
+
+    {%- if active == 0 -%}
+      <div class="promos-empty">No active promotions. Add a "Promotion" block, or check its start and end dates. This notice is only visible in the theme editor.</div>
+    {%- endif -%}
+
+    <div class="promos-grid promos-grid--{{ active | at_most: 3 }}">
+      {%- for block in section.blocks -%}
+        {%- liquid
+          assign starts = block.settings.start_date | strip
+          assign ends = block.settings.end_date | strip
+          if starts != blank and starts > today
+            continue
+          endif
+          if ends != blank and ends < today
+            continue
+          endif
+          assign b_title = block.settings.title
+          assign b_offer = block.settings.offer
+          assign b_details = block.settings.details
+          assign b_terms = block.settings.terms
+          assign b_button = block.settings.button_text
+          if lang == 'zh'
+            if block.settings.title_zh != blank
+              assign b_title = block.settings.title_zh
+            endif
+            if block.settings.offer_zh != blank
+              assign b_offer = block.settings.offer_zh
+            endif
+            if block.settings.details_zh != blank
+              assign b_details = block.settings.details_zh
+            endif
+            if block.settings.terms_zh != blank
+              assign b_terms = block.settings.terms_zh
+            endif
+            if block.settings.button_text_zh != blank
+              assign b_button = block.settings.button_text_zh
+            endif
+          endif
+          assign brand_name = block.settings.brand
+          if brand_name == 'other'
+            assign brand_name = block.settings.brand_other
+          endif
+        -%}
+        <article class="promo-card" {{ block.shopify_attributes }}>
+          {%- if block.settings.image != blank -%}
+            <div class="promo-media">
+              {{ block.settings.image | image_url: width: 1200 | image_tag: loading: 'lazy', widths: '500, 800, 1200', sizes: '(max-width: 768px) 100vw, 50vw', alt: b_title }}
+            </div>
+          {%- endif -%}
+          <div class="promo-body">
+            <div class="promo-brand">
+              {%- if block.settings.logo != blank -%}
+                {{ block.settings.logo | image_url: width: 320 | image_tag: loading: 'lazy', alt: brand_name, class: 'promo-logo' }}
+              {%- else -%}
+                <span>{{ brand_name }}</span>
+              {%- endif -%}
+            </div>
+            <h3 class="promo-title">{{ b_title }}</h3>
+            {%- if b_offer != blank -%}<p class="promo-offer">{{ b_offer }}</p>{%- endif -%}
+            {%- if b_details != blank -%}<p class="promo-details">{{ b_details }}</p>{%- endif -%}
+            {%- if ends != blank -%}
+              <p class="promo-dates">
+                {%- if lang == 'zh' -%}活动截止 {{ ends | date: '%Y年%-m月%-d日' }}{%- else -%}Offer ends {{ ends | date: '%B %-d, %Y' }}{%- endif -%}
+              </p>
+            {%- endif -%}
+            {%- if b_button != blank -%}
+              <a class="btn btn-primary promo-btn" href="{{ block.settings.button_url | default: '#contact' }}">{{ b_button }}</a>
+            {%- endif -%}
+            {%- if b_terms != blank -%}<p class="promo-terms">{{ b_terms }}</p>{%- endif -%}
+          </div>
+        </article>
+      {%- endfor -%}
+    </div>
+  </div>
+</section>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Promotions",
+  "settings": [
+    { "type": "checkbox", "id": "enabled", "label": "Show promotions", "default": true },
+    { "type": "paragraph", "content": "Offers hide automatically after their end date. Enter only terms confirmed by the manufacturer or your dealer program." },
+    { "type": "text", "id": "section_label", "label": "Label (EN)", "default": "Limited-Time Offers" },
+    { "type": "text", "id": "section_label_zh", "label": "小标签（中文）", "default": "限时活动" },
+    { "type": "text", "id": "heading", "label": "Heading (EN)", "default": "Current Promotions" },
+    { "type": "text", "id": "heading_zh", "label": "标题（中文）", "default": "当期优惠" },
+    { "type": "textarea", "id": "description", "label": "Description (EN)", "default": "Manufacturer offers available through S. MORI. Ask us how they apply to your project." },
+    { "type": "textarea", "id": "description_zh", "label": "说明（中文）", "default": "以下为品牌官方活动，可通过 S. MORI 享受。具体是否适用您的项目，请咨询我们的顾问。" }
+  ],
+  "blocks": [
+    {
+      "type": "promotion",
+      "name": "Promotion",
+      "settings": [
+        { "type": "select", "id": "brand", "label": "Brand", "options": [ { "value": "Hunter Douglas", "label": "Hunter Douglas" }, { "value": "ALTA", "label": "ALTA Window Fashions" }, { "value": "other", "label": "Other" } ], "default": "Hunter Douglas" },
+        { "type": "text", "id": "brand_other", "label": "Brand name (if Other)" },
+        { "type": "image_picker", "id": "logo", "label": "Brand logo (optional)", "info": "Use the official logo from your dealer marketing portal." },
+        { "type": "image_picker", "id": "image", "label": "Promotion image (optional)" },
+        { "type": "text", "id": "title", "label": "Title (EN)", "default": "Savings Event" },
+        { "type": "text", "id": "title_zh", "label": "标题（中文）" },
+        { "type": "text", "id": "offer", "label": "Offer headline (EN)", "info": "e.g. the rebate amount or upgrade, exactly as in the official promotion" },
+        { "type": "text", "id": "offer_zh", "label": "优惠内容（中文）" },
+        { "type": "textarea", "id": "details", "label": "Details (EN)" },
+        { "type": "textarea", "id": "details_zh", "label": "详情（中文）" },
+        { "type": "text", "id": "start_date", "label": "Start date (YYYY-MM-DD)", "info": "Optional. Hidden before this date." },
+        { "type": "text", "id": "end_date", "label": "End date (YYYY-MM-DD)", "info": "Hidden after this date." },
+        { "type": "text", "id": "button_text", "label": "Button text (EN)", "default": "Book a Consultation" },
+        { "type": "text", "id": "button_text_zh", "label": "按钮文字（中文）", "default": "预约免费咨询" },
+        { "type": "url", "id": "button_url", "label": "Button link", "info": "Empty = scroll to the contact form" },
+        { "type": "textarea", "id": "terms", "label": "Fine print (EN)", "default": "Offer terms, eligible products and dates are set by the manufacturer and may change. Ask for details." },
+        { "type": "textarea", "id": "terms_zh", "label": "活动条款（中文）", "default": "活动条款、适用产品和日期以品牌官方为准，可能调整，详情请咨询。" }
+      ]
+    }
+  ],
+  "max_blocks": 6
+}
+{% endschema %}
