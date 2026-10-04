@@ -1,0 +1,19 @@
+{%- comment -%} One promotion card. Params: brand, logo, image, title, offer, details, terms, ends (YYYY-MM-DD), button_text, button_url, source_url, lang, attrs {%- endcomment -%}
+<article class="promo-card" {{ attrs }}>
+  {%- if image != blank -%}
+    <div class="promo-media">{{ image | image_url: width: 1200 | image_tag: loading: 'lazy', widths: '500, 800, 1200', sizes: '(max-width: 768px) 100vw, 50vw', alt: title }}</div>
+  {%- endif -%}
+  <div class="promo-body">
+    <div class="promo-brand">
+      {%- if logo != blank -%}{{ logo | image_url: width: 320 | image_tag: loading: 'lazy', alt: brand, class: 'promo-logo' }}{%- else -%}<span>{{ brand }}</span>{%- endif -%}
+    </div>
+    <h3 class="promo-title">{{ title }}</h3>
+    {%- if offer != blank -%}<p class="promo-offer">{{ offer }}</p>{%- endif -%}
+    {%- if details != blank -%}<p class="promo-details">{{ details }}</p>{%- endif -%}
+    {%- if ends != blank -%}
+      <p class="promo-dates">{%- if lang == 'zh' -%}活动截止 {{ ends | date: '%Y年%-m月%-d日' }}{%- else -%}Offer ends {{ ends | date: '%B %-d, %Y' }}{%- endif -%}</p>
+    {%- endif -%}
+    {%- if button_text != blank -%}<a class="btn btn-primary promo-btn" href="{{ button_url | default: '#contact' }}">{{ button_text }}</a>{%- endif -%}
+    {%- if terms != blank -%}<p class="promo-terms">{{ terms }}{% if source_url != blank %} <a href="{{ source_url }}" target="_blank" rel="noopener">{% if lang == 'zh' %}查看品牌官网{% else %}Official details{% endif %}</a>{% endif %}</p>{%- endif -%}
+  </div>
+</article>

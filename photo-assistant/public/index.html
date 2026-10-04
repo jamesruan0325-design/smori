@@ -65,6 +65,7 @@
 <main>
   <aside>
     <button class="btn primary" id="newBtn" style="width:100%;justify-content:center">＋ 新建项目</button>
+    <button class="btn" id="promosBtn" style="width:100%;justify-content:center;margin-top:8px">官网活动跟踪</button>
     <button class="btn" id="leadsBtn" style="width:100%;justify-content:center;margin-top:8px">网站咨询线索 <span id="leadsCount" class="badge"></span></button>
     <div id="projects" style="margin-top:16px"></div>
   </aside>
@@ -157,6 +158,24 @@ $('#leadsBtn').onclick = async () => {
     </div>`).join('') : '<p style="color:var(--muted)">还没有线索。</p>'}`;
   loadLeadsCount();
 };
+$('#promosBtn').onclick = async () => {
+  current = null; location.hash = 'promotions';
+  $('#view').innerHTML = '<h2>官网活动跟踪</h2><p style="color:var(--muted)">加载中…</p>';
+  const d = await api('/api/promotions');
+  const st = { ACTIVE: '<b class="ok">网站上显示中</b>', DRAFT: '<b class="warn">草稿（未显示）</b>' };
+  $('#view').innerHTML = `<h2>官网活动跟踪</h2>
+    <p style="color:var(--muted);font-size:13px">服务器每天自动检查品牌官网活动页。新活动或内容变化 → 生成草稿并推送通知；官网撤下的活动 → 自动从网站下架。只有您点"发布到网站"后才会显示。上次检查：${esc((d.lastRun||'从未').replace('T',' ').slice(0,16))}
+    <button class="btn small" onclick="checkPromos()">立即检查</button></p>
+    <h3>来源</h3>${d.sources.map(s => `<div class="panel"><b style="color:#fff">${esc(s.brand)}</b> · <a href="${esc(s.url)}" target="_blank">${esc(s.url)}</a><br><span style="font-size:12px;color:${s.error?'var(--err)':'var(--muted)'}">${s.error ? '读取失败：' + esc(s.error) : esc(s.lastStatus || '尚未检查')}</span></div>`).join('')}
+    <h3>活动</h3>${d.offers.length ? d.offers.map(o => `<div class="panel" style="border-color:${o.status==='ACTIVE'?'var(--ok)':o.gone?'var(--line)':'var(--gold)'}">
+      <b style="color:#fff">${esc(o.brand)} · ${esc(o.title)}</b> ${o.gone ? '<span class="badge">官网已撤下</span>' : ''}<br>
+      <span style="font-size:12px;color:var(--muted)">首次发现 ${esc(o.firstSeen.slice(0,10))} · 最近确认 ${esc(o.lastSeen.slice(0,10))}</span><br>
+      状态：${st[o.status] || esc(o.status || '未知')}
+      <div style="margin-top:10px"><a class="btn small" href="${esc(o.adminUrl)}" target="_blank">在 Shopify 查看/修改</a>
+      ${o.gone ? '' : o.status === 'ACTIVE' ? `<button class="btn small" onclick="promoLive('${esc(o.key)}', false)">从网站下架</button>` : `<button class="btn small primary" onclick="promoLive('${esc(o.key)}', true)">发布到网站</button>`}</div></div>`).join('') : '<p style="color:var(--muted)">还没有发现活动。点"立即检查"。</p>'}`;
+};
+async function checkPromos() { try { const r = await api('/api/promotions/check', {method:'POST', body:{}}); alert(`检查完成：新活动 ${r.created.length}，有变化 ${r.updated.length}，已结束 ${r.removed.length}，未变化 ${r.unchanged.length}${r.errors.length ? '\n问题：' + r.errors.join('\n') : ''}`); $('#promosBtn').click(); } catch (e) { alert(e.message); } }
+async function promoLive(key, live) { if (live && !confirm('请确认 S. MORI 参与该活动、内容无误。发布后网站立即显示。继续？')) return; try { await api('/api/promotions/live', {method:'POST', body:{key, live}}); $('#promosBtn').click(); } catch (e) { alert(e.message); } }
 $('#newBtn').onclick = () => {
   current = null;
   $('#view').innerHTML = `<h2>新建项目</h2><form id="newForm">${factsForm()}<div style="margin-top:18px"><button class="btn primary">创建并上传照片</button></div></form>`;
@@ -275,7 +294,7 @@ async function patch(body) { try { await api('/api/projects/'+current.id, {metho
 async function move(id, dir) { const ids = current.photos.map(p => p.id); const i = ids.indexOf(id); const j = i + dir; if (j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; patch({photoOrder: ids}); }
 async function delPhoto(id) { if (!confirm('删除这张照片（含原图）？')) return; try { await api(`/api/projects/${current.id}/photos/${id}`, {method:'DELETE'}); openProject(current.id); } catch (e) { alert(e.message); } }
 
-loadHealth().then(loadProjects).then(loadLeadsCount).then(() => { const h = location.hash.slice(1); if (h === 'leads') $('#leadsBtn').click(); else if (h) openProject(h); }).catch(e => { $('#status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; });
+loadHealth().then(loadProjects).then(loadLeadsCount).then(() => { const h = location.hash.slice(1); if (h === 'leads') $('#leadsBtn').click(); else if (h === 'promotions') $('#promosBtn').click(); else if (h) openProject(h); }).catch(e => { $('#status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; });
 </script>
 </body>
 </html>

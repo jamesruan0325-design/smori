@@ -15,6 +15,8 @@ import { approveAndPublish, diskStatus, finalizeProject, ingestPhoto, pruneStora
 import { notifyConfigured, sendNtfy } from './notify.js';
 import { proxyAuth, handleChat, handleLead, handlePing } from './proxy.js';
 import { listLeads, markLead } from './leads.js';
+import { checkPromotions, readPromoState, setPromotionLive, startPromotionScheduler, SOURCES } from './promotions.js';
+import { getMetaobjectStatus, adminUrlFor, PROMOTION_TYPE } from './shopify.js';
 import { claudeConfigured } from './copy.js';
 import { runGenerate, runSaveDraft, buildMetaobjectFields } from './pipeline.js';
 import { createProject, deletePhotoFiles, getProject, listProjects, photoPath, saveProject, type ProjectFacts } from './store.js';
@@ -152,6 +154,20 @@ app.get('/api/auto/log', wrap(async (_req, res) => { res.json({ lines: (await re
 app.post('/api/projects/:id/finalize', wrap(async (req, res) => { res.json(await finalizeProject(param(req, 'id'), undefined, { force: true })); }));
 app.post('/api/projects/:id/publish', wrap(async (req, res) => { res.json(await approveAndPublish(param(req, 'id'), { regenerate: Boolean(req.body?.regenerate) })); }));
 
+// ---- official promotion tracking ----
+app.get('/api/promotions', wrap(async (_req, res) => {
+  const st = await readPromoState();
+  const offers = [];
+  for (const t of Object.values(st.offers)) {
+    let status: string | null = null;
+    try { status = await getMetaobjectStatus(t.metaobjectId); } catch { /* shopify unavailable */ }
+    offers.push({ ...t, status, adminUrl: adminUrlFor(t.metaobjectId, PROMOTION_TYPE) });
+  }
+  res.json({ sources: SOURCES.map((s) => ({ ...s, ...(st.sources[s.id] ?? {}) })), offers, lastRun: st.lastRun ?? null });
+}));
+app.post('/api/promotions/check', wrap(async (req, res) => { res.json(await checkPromotions(undefined, { force: Boolean(req.body?.force) })); }));
+app.post('/api/promotions/live', wrap(async (req, res) => { await setPromotionLive(String(req.body?.key ?? ''), Boolean(req.body?.live)); res.json({ ok: true }); }));
+
 // ---- leads from the website assistant ----
 app.get('/api/leads', wrap(async (_req, res) => { res.json(await listLeads()); }));
 app.post('/api/leads/:id/handled', wrap(async (req, res) => { await markLead(param(req, 'id'), Boolean(req.body?.handled ?? true)); res.json({ ok: true }); }));
@@ -256,6 +272,7 @@ app.get('/files/:id/:kind/:name', wrap(async (req, res) => {
 }));
 
 startScheduler();
+if (config.autoEnabled) startPromotionScheduler();
 app.listen(config.port, () => {
   console.log(`SMORI photo assistant: http://localhost:${config.port}  (data: ${config.dataDir})`);
   console.log(`Claude: ${claudeConfigured() ? config.claudeModel : 'NOT configured'} | OAuth: ${oauthConfigured() ? `${config.appUrl} (client ${config.apiKey.slice(0, 6)}…)` : 'NOT configured'}`);

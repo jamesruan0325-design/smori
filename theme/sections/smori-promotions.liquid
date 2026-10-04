@@ -6,7 +6,29 @@
 {%- liquid
   assign lang = request.locale.iso_code | slice: 0, 2
   assign today = 'now' | date: '%Y-%m-%d'
+  assign default_btn = 'Book a Consultation'
+  if lang == 'zh'
+    assign default_btn = '预约免费咨询'
+  endif
+
+  comment
+    Tracked offers come from published `promotion` metaobjects (managed by the
+    SMORI app: drafts until a person publishes). Manual blocks are shown too.
+  endcomment
   assign active = 0
+  if section.settings.show_tracked
+    for entry in metaobjects.promotion.values
+      assign start_ymd = entry.start_date.value | date: '%Y-%m-%d'
+      assign end_ymd = entry.end_date.value | date: '%Y-%m-%d'
+      if entry.start_date.value != blank and start_ymd > today
+        continue
+      endif
+      if entry.end_date.value != blank and end_ymd < today
+        continue
+      endif
+      assign active = active | plus: 1
+    endfor
+  endif
   for block in section.blocks
     assign starts = block.settings.start_date | strip
     assign ends = block.settings.end_date | strip
@@ -47,10 +69,48 @@
     </div>
 
     {%- if active == 0 -%}
-      <div class="promos-empty">No active promotions. Add a "Promotion" block, or check its start and end dates. This notice is only visible in the theme editor.</div>
+      <div class="promos-empty">No active promotions. Publish a tracked offer in the SMORI app, add a "Promotion" block, or check the dates. This notice is only visible in the theme editor.</div>
     {%- endif -%}
 
     <div class="promos-grid promos-grid--{{ active | at_most: 3 }}">
+      {%- if section.settings.show_tracked -%}
+        {%- for entry in metaobjects.promotion.values -%}
+          {%- liquid
+            assign start_ymd = entry.start_date.value | date: '%Y-%m-%d'
+            assign end_ymd = entry.end_date.value | date: '%Y-%m-%d'
+            if entry.start_date.value != blank and start_ymd > today
+              continue
+            endif
+            if entry.end_date.value != blank and end_ymd < today
+              continue
+            endif
+            assign ends = ''
+            if entry.end_date.value != blank
+              assign ends = end_ymd
+            endif
+            assign t = entry.title.value
+            assign o = entry.offer.value
+            assign d = entry.details.value
+            assign tm = entry.terms.value
+            if lang == 'zh'
+              if entry.title_zh.value != blank
+                assign t = entry.title_zh.value
+              endif
+              if entry.offer_zh.value != blank
+                assign o = entry.offer_zh.value
+              endif
+              if entry.details_zh.value != blank
+                assign d = entry.details_zh.value
+              endif
+              if entry.terms_zh.value != blank
+                assign tm = entry.terms_zh.value
+              endif
+            endif
+          -%}
+          {%- render 'smori-promo-card', brand: entry.brand.value, title: t, offer: o, details: d, terms: tm, ends: ends, button_text: default_btn, button_url: '', source_url: entry.source_url.value, lang: lang -%}
+        {%- endfor -%}
+      {%- endif -%}
+
       {%- for block in section.blocks -%}
         {%- liquid
           assign starts = block.settings.start_date | strip
@@ -88,34 +148,7 @@
             assign brand_name = block.settings.brand_other
           endif
         -%}
-        <article class="promo-card" {{ block.shopify_attributes }}>
-          {%- if block.settings.image != blank -%}
-            <div class="promo-media">
-              {{ block.settings.image | image_url: width: 1200 | image_tag: loading: 'lazy', widths: '500, 800, 1200', sizes: '(max-width: 768px) 100vw, 50vw', alt: b_title }}
-            </div>
-          {%- endif -%}
-          <div class="promo-body">
-            <div class="promo-brand">
-              {%- if block.settings.logo != blank -%}
-                {{ block.settings.logo | image_url: width: 320 | image_tag: loading: 'lazy', alt: brand_name, class: 'promo-logo' }}
-              {%- else -%}
-                <span>{{ brand_name }}</span>
-              {%- endif -%}
-            </div>
-            <h3 class="promo-title">{{ b_title }}</h3>
-            {%- if b_offer != blank -%}<p class="promo-offer">{{ b_offer }}</p>{%- endif -%}
-            {%- if b_details != blank -%}<p class="promo-details">{{ b_details }}</p>{%- endif -%}
-            {%- if ends != blank -%}
-              <p class="promo-dates">
-                {%- if lang == 'zh' -%}活动截止 {{ ends | date: '%Y年%-m月%-d日' }}{%- else -%}Offer ends {{ ends | date: '%B %-d, %Y' }}{%- endif -%}
-              </p>
-            {%- endif -%}
-            {%- if b_button != blank -%}
-              <a class="btn btn-primary promo-btn" href="{{ block.settings.button_url | default: '#contact' }}">{{ b_button }}</a>
-            {%- endif -%}
-            {%- if b_terms != blank -%}<p class="promo-terms">{{ b_terms }}</p>{%- endif -%}
-          </div>
-        </article>
+        {%- render 'smori-promo-card', brand: brand_name, logo: block.settings.logo, image: block.settings.image, title: b_title, offer: b_offer, details: b_details, terms: b_terms, ends: ends, button_text: b_button, button_url: block.settings.button_url, lang: lang, attrs: block.shopify_attributes -%}
       {%- endfor -%}
     </div>
   </div>
@@ -127,6 +160,7 @@
   "name": "Promotions",
   "settings": [
     { "type": "checkbox", "id": "enabled", "label": "Show promotions", "default": true },
+    { "type": "checkbox", "id": "show_tracked", "label": "Show offers tracked from official sites", "default": true, "info": "Published entries of the 'Promotion' metaobject, managed by the SMORI app (Content > Metaobjects > Promotion)." },
     { "type": "paragraph", "content": "Offers hide automatically after their end date. Enter only terms confirmed by the manufacturer or your dealer program." },
     { "type": "text", "id": "section_label", "label": "Label (EN)", "default": "Limited-Time Offers" },
     { "type": "text", "id": "section_label_zh", "label": "小标签（中文）", "default": "限时活动" },

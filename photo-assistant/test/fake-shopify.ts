@@ -7,6 +7,7 @@ import { AddressInfo } from 'node:net';
 
 export interface FakeState {
   definition: null | { id: string; type: string; fields: any[]; publishable: boolean; onlineStore: boolean };
+  definitions: Record<string, { id: string; type: string; fields: any[]; publishable: boolean; onlineStore: boolean }>;
   files: Map<string, { status: string; polls: number; alt: string; filename: string }>;
   uploads: { filename: string; bytes: number }[];
   metaobjects: { id: string; handle: string; type: string; fields: Record<string, string>; status: string }[];
@@ -14,7 +15,7 @@ export interface FakeState {
 }
 
 export async function startFakeShopify(): Promise<{ endpoint: string; state: FakeState; close: () => Promise<void> }> {
-  const state: FakeState = { definition: null, files: new Map(), uploads: [], metaobjects: [], requests: [] };
+  const state: FakeState = { definition: null, definitions: {}, files: new Map(), uploads: [], metaobjects: [], requests: [] };
   let seq = 100;
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -34,15 +35,21 @@ export async function startFakeShopify(): Promise<{ endpoint: string; state: Fak
       switch (op) {
         case 'shop': return reply({ shop: { name: 'Fake SMORI', myshopifyDomain: 'fake.myshopify.com' } });
         case 'metaobjectDefinitionByType':
-          return reply({ metaobjectDefinitionByType: state.definition && state.definition.type === variables.type ? { id: state.definition.id, type: state.definition.type, fieldDefinitions: state.definition.fields.map((f) => ({ key: f.key, type: { name: f.type } })), capabilities: { publishable: { enabled: state.definition.publishable }, onlineStore: { enabled: state.definition.onlineStore } } } : null });
+        {
+          const def = state.definitions[variables.type];
+          return reply({ metaobjectDefinitionByType: def ? { id: def.id, type: def.type, fieldDefinitions: def.fields.map((f) => ({ key: f.key, type: { name: f.type } })), capabilities: { publishable: { enabled: def.publishable }, onlineStore: { enabled: def.onlineStore } } } : null });
+        }
         case 'metaobjectDefinitionCreate': {
           const d = variables.definition;
-          state.definition = { id: 'gid://shopify/MetaobjectDefinition/1', type: d.type, fields: d.fieldDefinitions, publishable: Boolean(d.capabilities?.publishable?.enabled), onlineStore: Boolean(d.capabilities?.onlineStore?.enabled) };
-          return reply({ metaobjectDefinitionCreate: { metaobjectDefinition: { id: state.definition.id }, userErrors: [] } });
+          const def = { id: `gid://shopify/MetaobjectDefinition/${Object.keys(state.definitions).length + 1}`, type: d.type, fields: d.fieldDefinitions, publishable: Boolean(d.capabilities?.publishable?.enabled), onlineStore: Boolean(d.capabilities?.onlineStore?.enabled) };
+          state.definitions[d.type] = def;
+          if (d.type === 'installation_case') state.definition = def;
+          return reply({ metaobjectDefinitionCreate: { metaobjectDefinition: { id: def.id }, userErrors: [] } });
         }
         case 'metaobjectDefinitionUpdate': {
-          for (const opn of variables.definition.fieldDefinitions ?? []) if (opn.create) state.definition!.fields.push(opn.create);
-          return reply({ metaobjectDefinitionUpdate: { metaobjectDefinition: { id: state.definition!.id }, userErrors: [] } });
+          const def = Object.values(state.definitions).find((x) => x.id === variables.id)!;
+          for (const opn of variables.definition.fieldDefinitions ?? []) if (opn.create) def.fields.push(opn.create);
+          return reply({ metaobjectDefinitionUpdate: { metaobjectDefinition: { id: def.id }, userErrors: [] } });
         }
         case 'stagedUploadsCreate': {
           const port = (server.address() as AddressInfo).port;
@@ -58,14 +65,19 @@ export async function startFakeShopify(): Promise<{ endpoint: string; state: Fak
         }
         case 'metaobjectCreate': {
           const m = variables.metaobject;
-          if (!state.definition || state.definition.type !== m.type) return reply({ metaobjectCreate: { metaobject: null, userErrors: [{ field: ['type'], message: 'definition not found', code: 'NOT_FOUND' }] } });
-          const known = new Set(state.definition.fields.map((f) => f.key));
+          const def = state.definitions[m.type];
+          if (!def) return reply({ metaobjectCreate: { metaobject: null, userErrors: [{ field: ['type'], message: 'definition not found', code: 'NOT_FOUND' }] } });
+          const known = new Set(def.fields.map((f: any) => f.key));
           const bad = m.fields.filter((f: any) => !known.has(f.key));
           if (bad.length) return reply({ metaobjectCreate: { metaobject: null, userErrors: bad.map((f: any) => ({ field: ['fields', f.key], message: 'unknown field', code: 'INVALID' })) } });
           const id = `gid://shopify/Metaobject/${++seq}`;
           const handle = m.handle ?? `entry-${seq}`;
           state.metaobjects.push({ id, handle, type: m.type, fields: Object.fromEntries(m.fields.map((f: any) => [f.key, f.value])), status: m.capabilities?.publishable?.status ?? 'ACTIVE' });
           return reply({ metaobjectCreate: { metaobject: { id, handle }, userErrors: [] } });
+        }
+        case 'metaobject': {
+          const mo = state.metaobjects.find((m) => m.id === variables.id);
+          return reply({ metaobject: mo ? { capabilities: { publishable: { status: mo.status } } } : null });
         }
         case 'metaobjectUpdate': {
           const mo = state.metaobjects.find((m) => m.id === variables.id);

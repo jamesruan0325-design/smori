@@ -106,32 +106,55 @@ export async function getDefinition(type = config.metaobjectType): Promise<Defin
 }
 
 /** Creates the installation_case definition if missing, or adds any missing fields to an existing one. */
+export interface DefinitionSpec { name: string; type: string; displayNameKey: string; fields: typeof FIELD_DEFINITIONS; capabilities: Record<string, unknown> }
+
 export async function ensureDefinition(type = config.metaobjectType): Promise<{ action: 'created' | 'updated' | 'ok'; definition: DefinitionInfo; addedFields: string[] }> {
+  return ensureDefinitionFor({
+    name: 'Installation Case', type, displayNameKey: 'title', fields: FIELD_DEFINITIONS,
+    capabilities: {
+      publishable: { enabled: true },
+      onlineStore: { enabled: true, data: { urlHandle: 'installations', createRedirects: false } },
+      renderable: { enabled: true, data: { metaTitleKey: 'title', metaDescriptionKey: 'summary' } },
+    },
+  });
+}
+
+export const PROMOTION_TYPE = 'promotion';
+export const PROMOTION_FIELDS = [
+  { key: 'promo_key', name: 'Tracking key', type: 'single_line_text_field', required: true },
+  { key: 'brand', name: 'Brand', type: 'single_line_text_field', required: true },
+  { key: 'title', name: 'Title (EN)', type: 'single_line_text_field', required: true },
+  { key: 'title_zh', name: '标题（中文）', type: 'single_line_text_field' },
+  { key: 'offer', name: 'Offer (EN)', type: 'single_line_text_field' },
+  { key: 'offer_zh', name: '优惠内容（中文）', type: 'single_line_text_field' },
+  { key: 'details', name: 'Details (EN)', type: 'multi_line_text_field' },
+  { key: 'details_zh', name: '详情（中文）', type: 'multi_line_text_field' },
+  { key: 'terms', name: 'Terms (EN)', type: 'multi_line_text_field' },
+  { key: 'terms_zh', name: '条款（中文）', type: 'multi_line_text_field' },
+  { key: 'start_date', name: 'Start date', type: 'date' },
+  { key: 'end_date', name: 'End date', type: 'date' },
+  { key: 'source_url', name: 'Official source', type: 'url' },
+  { key: 'checked_at', name: 'Last checked', type: 'single_line_text_field' },
+] as unknown as typeof FIELD_DEFINITIONS;
+
+export function ensurePromotionDefinition() {
+  return ensureDefinitionFor({ name: 'Promotion', type: PROMOTION_TYPE, displayNameKey: 'title', fields: PROMOTION_FIELDS, capabilities: { publishable: { enabled: true } } });
+}
+
+export async function ensureDefinitionFor(spec: DefinitionSpec): Promise<{ action: 'created' | 'updated' | 'ok'; definition: DefinitionInfo; addedFields: string[] }> {
+  const type = spec.type;
   const existing = await getDefinition(type);
   if (!existing) {
     const d = await graphql<{ metaobjectDefinitionCreate: { metaobjectDefinition: { id: string } | null; userErrors: any[] } }>(
       `mutation($definition: MetaobjectDefinitionCreateInput!) { metaobjectDefinitionCreate(definition: $definition) { metaobjectDefinition { id } userErrors { field message code } } }`,
-      {
-        definition: {
-          name: 'Installation Case',
-          type,
-          displayNameKey: 'title',
-          fieldDefinitions: FIELD_DEFINITIONS,
-          capabilities: {
-            publishable: { enabled: true },
-            onlineStore: { enabled: true, data: { urlHandle: 'installations', createRedirects: false } },
-            renderable: { enabled: true, data: { metaTitleKey: 'title', metaDescriptionKey: 'summary' } },
-          },
-          access: { storefront: 'PUBLIC_READ' },
-        },
-      },
+      { definition: { name: spec.name, type, displayNameKey: spec.displayNameKey, fieldDefinitions: spec.fields, capabilities: spec.capabilities, access: { storefront: 'PUBLIC_READ' } } },
     );
     assertNoUserErrors('metaobjectDefinitionCreate', d.metaobjectDefinitionCreate.userErrors);
     const created = await getDefinition(type);
     if (!created) throw new ShopifyError('definition created but cannot be read back');
-    return { action: 'created', definition: created, addedFields: FIELD_DEFINITIONS.map((f) => f.key) };
+    return { action: 'created', definition: created, addedFields: spec.fields.map((f) => f.key) };
   }
-  const missing = FIELD_DEFINITIONS.filter((f) => !existing.fieldKeys.includes(f.key));
+  const missing = spec.fields.filter((f) => !existing.fieldKeys.includes(f.key));
   if (!missing.length) return { action: 'ok', definition: existing, addedFields: [] };
   const d = await graphql<{ metaobjectDefinitionUpdate: { userErrors: any[] } }>(
     `mutation($id: ID!, $definition: MetaobjectDefinitionUpdateInput!) { metaobjectDefinitionUpdate(id: $id, definition: $definition) { metaobjectDefinition { id } userErrors { field message code } } }`,
@@ -197,6 +220,13 @@ export async function uploadImage(filePath: string, filename: string, alt: strin
 /* ------------------------------------------------------------------ */
 
 export interface CreatedMetaobject { id: string; handle: string; adminUrl: string }
+
+export async function getMetaobjectStatus(id: string): Promise<'ACTIVE' | 'DRAFT' | null> {
+  const d = await graphql<{ metaobject: { capabilities: { publishable: { status: 'ACTIVE' | 'DRAFT' } | null } } | null }>(
+    `query($id: ID!) { metaobject(id: $id) { capabilities { publishable { status } } } }`, { id },
+  );
+  return d.metaobject?.capabilities?.publishable?.status ?? null;
+}
 
 export async function createDraftMetaobject(fields: Record<string, string>, handle?: string, type = config.metaobjectType): Promise<CreatedMetaobject> {
   const fieldList = Object.entries(fields).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([key, value]) => ({ key, value }));
