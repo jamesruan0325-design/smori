@@ -62,7 +62,8 @@ const tools: Anthropic.Beta.BetaTool[] = [{
 
 export interface ChatResult { reply: string; language: Lang; lead?: Lead; handoff?: boolean; model?: string }
 
-export interface ChatDeps { saveLead: typeof saveLead }
+export type CreateMessage = (params: Anthropic.Beta.MessageCreateParamsNonStreaming) => Promise<Anthropic.Beta.BetaMessage>;
+export interface ChatDeps { saveLead: typeof saveLead; create?: CreateMessage }
 
 export function offlineReply(lang: Lang): string {
   return lang === 'zh'
@@ -70,58 +71,93 @@ export function offlineReply(lang: Lang): string {
     : `Sorry, the assistant is unavailable right now. Please call ${BUSINESS.phone} or email ${BUSINESS.email} and our team will get back to you.`;
 }
 
-/** Runs one assistant turn. `history` is the full conversation so far (last item is the customer's message). */
-export async function chatTurn(history: ChatMessage[], conversationId: string, deps: ChatDeps = { saveLead }): Promise<ChatResult> {
-  const trimmed = history.slice(-20).map((m) => ({ role: m.role, content: m.content.slice(0, 1500) }));
-  const last = [...trimmed].reverse().find((m) => m.role === 'user');
-  const language = detectLanguage(last?.content ?? '', 'en');
-  const client = new Anthropic();
-  const messages: Anthropic.Beta.BetaMessageParam[] = trimmed.map((m) => ({ role: m.role, content: m.content }));
-  let lead: Lead | undefined;
-  let handoff = false;
+let sharedClient: Anthropic | null = null;
+export const defaultCreate: CreateMessage = (params) => {
+  sharedClient ??= new Anthropic();
+  return sharedClient.beta.messages.create(params);
+};
 
-  for (let round = 0; round < 3; round++) {
-    const response = await client.beta.messages.create({
-      model: config.chatModel,
+export function trimHistory(history: ChatMessage[]): ChatMessage[] {
+  return history.slice(-20).map((m) => ({ role: m.role, content: m.content.slice(0, 1500) }));
+}
+
+export interface ToolOutcome { content: string; is_error?: boolean }
+export interface ToolLoopOptions {
+  system: string;
+  tools: Anthropic.Beta.BetaTool[];
+  history: ChatMessage[];
+  onTool: (name: string, input: Record<string, unknown>) => Promise<ToolOutcome>;
+  create?: CreateMessage;
+  model?: string;
+  effort?: 'low' | 'medium' | 'high';
+  maxRounds?: number;
+}
+export interface ToolLoopResult { text: string; refused?: boolean; exhausted?: boolean; model?: string }
+
+/** The Claude call + tool loop shared by the website assistant and the sales agent. */
+export async function runToolLoop(o: ToolLoopOptions): Promise<ToolLoopResult> {
+  const create = o.create ?? defaultCreate;
+  const messages: Anthropic.Beta.BetaMessageParam[] = o.history.map((m) => ({ role: m.role, content: m.content }));
+  let model: string | undefined;
+  for (let round = 0; round < (o.maxRounds ?? 3); round++) {
+    const response = await create({
+      model: o.model ?? config.chatModel,
       max_tokens: 1200,
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
       thinking: { type: 'adaptive' },
-      output_config: { effort: config.chatEffort },
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-      tools,
+      output_config: { effort: o.effort ?? config.chatEffort },
+      system: [{ type: 'text', text: o.system, cache_control: { type: 'ephemeral' } }],
+      tools: o.tools,
       messages,
     });
-
-    if (response.stop_reason === 'refusal') {
-      return { reply: offlineReply(language), language, handoff: true, model: response.model };
-    }
+    model = response.model;
+    if (response.stop_reason === 'refusal') return { text: '', refused: true, model };
     const toolUses = response.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
     const text = response.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
-
-    if (!toolUses.length || response.stop_reason !== 'tool_use') {
-      return { reply: text || offlineReply(language), language, lead, handoff: handoff || Boolean(lead), model: response.model };
-    }
+    if (!toolUses.length || response.stop_reason !== 'tool_use') return { text, model };
 
     messages.push({ role: 'assistant', content: response.content });
     const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
     for (const tu of toolUses) {
-      const input = (tu.input ?? {}) as Partial<Lead>;
-      if (tu.name === 'create_lead' && hasContact(input)) {
-        try {
-          lead = await deps.saveLead({ ...input, reason: (input.reason as Lead['reason']) ?? 'other', source: 'chat', conversationId, language, transcript: trimmed });
-          handoff = true;
-          results.push({ type: 'tool_result', tool_use_id: tu.id, content: `Lead saved (id ${lead.id}). Confirm to the customer that a team member will reach out during business hours; mention the phone number ${BUSINESS.phone} as an alternative. Do not promise a specific response time.` });
-        } catch (e) {
-          results.push({ type: 'tool_result', tool_use_id: tu.id, is_error: true, content: `Could not save: ${(e as Error).message}. Ask the customer to call ${BUSINESS.phone} instead.` });
-        }
-      } else {
-        results.push({ type: 'tool_result', tool_use_id: tu.id, is_error: true, content: 'A phone number, email or WeChat ID is required before saving. Ask the customer for one.' });
-      }
+      const out = await o.onTool(tu.name, (tu.input ?? {}) as Record<string, unknown>);
+      results.push({ type: 'tool_result', tool_use_id: tu.id, content: out.content, ...(out.is_error ? { is_error: true } : {}) });
     }
     messages.push({ role: 'user', content: results });
   }
-  return { reply: offlineReply(language), language, lead, handoff: true };
+  return { text: '', exhausted: true, model };
+}
+
+/** Runs one assistant turn. `history` is the full conversation so far (last item is the customer's message). */
+export async function chatTurn(history: ChatMessage[], conversationId: string, deps: ChatDeps = { saveLead }): Promise<ChatResult> {
+  const trimmed = trimHistory(history);
+  const last = [...trimmed].reverse().find((m) => m.role === 'user');
+  const language = detectLanguage(last?.content ?? '', 'en');
+  let lead: Lead | undefined;
+  let handoff = false;
+
+  const out = await runToolLoop({
+    system: SYSTEM,
+    tools,
+    history: trimmed,
+    create: deps.create,
+    onTool: async (name, raw) => {
+      const input = raw as Partial<Lead>;
+      if (name === 'create_lead' && hasContact(input)) {
+        try {
+          lead = await deps.saveLead({ ...input, reason: (input.reason as Lead['reason']) ?? 'other', source: 'chat', conversationId, language, transcript: trimmed });
+          handoff = true;
+          return { content: `Lead saved (id ${lead.id}). Confirm to the customer that a team member will reach out during business hours; mention the phone number ${BUSINESS.phone} as an alternative. Do not promise a specific response time.` };
+        } catch (e) {
+          return { is_error: true, content: `Could not save: ${(e as Error).message}. Ask the customer to call ${BUSINESS.phone} instead.` };
+        }
+      }
+      return { is_error: true, content: 'A phone number, email or WeChat ID is required before saving. Ask the customer for one.' };
+    },
+  });
+  if (out.refused) return { reply: offlineReply(language), language, handoff: true, model: out.model };
+  if (out.exhausted) return { reply: offlineReply(language), language, lead, handoff: true };
+  return { reply: out.text || offlineReply(language), language, lead, handoff: handoff || Boolean(lead), model: out.model };
 }
 
 /** Appends an exchange to the per-conversation transcript for staff review (no IPs, no cookies). */

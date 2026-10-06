@@ -7,12 +7,15 @@
 {%- if section.settings.enabled -%}
   {{ 'smori-assistant.css' | asset_url | stylesheet_tag }}
   <div id="smori-assistant"
+       data-mode="{{ section.settings.mode | default: 'assistant' }}"
        data-endpoint="{{ section.settings.proxy_path | default: '/apps/assistant' }}"
        data-locale="{{ request.locale.iso_code }}"
        data-name-en="{{ section.settings.name_en | escape }}"
        data-name-zh="{{ section.settings.name_zh | escape }}"
        data-greeting-en="{{ section.settings.greeting_en | escape }}"
        data-greeting-zh="{{ section.settings.greeting_zh | escape }}"
+       data-sales-greeting-en="{{ section.settings.sales_greeting_en | escape }}"
+       data-sales-greeting-zh="{{ section.settings.sales_greeting_zh | escape }}"
        data-phone="{{ section.settings.phone | escape }}"
        data-email="{{ section.settings.email | escape }}"
        data-position="{{ section.settings.position }}">
@@ -26,12 +29,15 @@
   "settings": [
     { "type": "paragraph", "content": "Chat widget powered by the SMORI Photo Assistant app. Requires the app's proxy at /apps/assistant. Turn off to hide the widget everywhere." },
     { "type": "checkbox", "id": "enabled", "label": "Show the assistant", "default": true },
+    { "type": "select", "id": "mode", "label": "Mode", "options": [ { "value": "assistant", "label": "Q&A assistant (current)" }, { "value": "sales", "label": "AI Sales Agent (needs discovery + consultation booking)" } ], "default": "assistant", "info": "AI Sales Agent requires the SMORI app version with the sales agent deployed." },
     { "type": "text", "id": "proxy_path", "label": "App proxy path", "default": "/apps/assistant" },
     { "type": "select", "id": "position", "label": "Position", "options": [ { "value": "right", "label": "Bottom right" }, { "value": "left", "label": "Bottom left" } ], "default": "right" },
     { "type": "text", "id": "name_en", "label": "Assistant name (EN)", "default": "SMORI Assistant" },
     { "type": "text", "id": "name_zh", "label": "助手名称（中文）", "default": "SMORI 智能顾问" },
     { "type": "textarea", "id": "greeting_en", "label": "Greeting (EN)", "default": "Hi, I can help with shades, blackout and privacy options, motorization, measurement and installation. Prices, lead times and warranty are confirmed by our team. How can I help?" },
     { "type": "textarea", "id": "greeting_zh", "label": "欢迎语（中文）", "default": "您好，我可以解答窗帘产品、遮光与隐私、电动控制、测量和安装方面的问题。价格、交期和保修需要由我们的顾问确认。请问有什么可以帮您？" },
+    { "type": "textarea", "id": "sales_greeting_en", "label": "Sales Agent greeting (EN)", "default": "Hi, I'm the SMORI AI design consultant. Tell me about the room and what you'd like to improve (darkness, privacy, light, insulation or style), and I'll suggest options. Pricing is provided by our team after a free in-home consultation." },
+    { "type": "textarea", "id": "sales_greeting_zh", "label": "Sales Agent 欢迎语（中文）", "default": "您好，我是 SMORI 的 AI 窗饰顾问。告诉我是哪个房间、想改善什么（遮光、隐私、采光、隔热或装饰），我来帮您推荐合适的方案。具体价格由顾问免费上门测量后提供。" },
     { "type": "text", "id": "phone", "label": "Phone for human handoff", "default": "(949) 880-1322" },
     { "type": "text", "id": "email", "label": "Email for human handoff", "default": "BonnieX@smoriwindowfashion.com" }
   ]

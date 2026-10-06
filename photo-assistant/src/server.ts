@@ -14,7 +14,7 @@ import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConf
 import { approveAndPublish, diskStatus, finalizeProject, ingestPhoto, pruneStorage, readLog, runAutoCycle, startScheduler } from './auto.js';
 import { notifyConfigured, sendNtfy } from './notify.js';
 import { proxyAuth, handleChat, handleLead, handlePing } from './proxy.js';
-import { listLeads, markLead } from './leads.js';
+import { leadsToCsv, listLeads, markLead, setLeadStage, STAGES, type Stage } from './leads.js';
 import { checkPromotions, readPromoState, setPromotionLive, startPromotionScheduler, SOURCES } from './promotions.js';
 import { getMetaobjectStatus, adminUrlFor, PROMOTION_TYPE } from './shopify.js';
 import { claudeConfigured } from './copy.js';
@@ -169,8 +169,20 @@ app.post('/api/promotions/check', wrap(async (req, res) => { res.json(await chec
 app.post('/api/promotions/live', wrap(async (req, res) => { await setPromotionLive(String(req.body?.key ?? ''), Boolean(req.body?.live)); res.json({ ok: true }); }));
 
 // ---- leads from the website assistant ----
-app.get('/api/leads', wrap(async (_req, res) => { res.json(await listLeads()); }));
+const stageParam = (v: unknown): Stage | undefined => (STAGES as readonly string[]).includes(String(v)) ? (v as Stage) : undefined;
+app.get('/api/leads', wrap(async (req, res) => { res.json(await listLeads(500, stageParam(req.query.stage))); }));
+app.get('/api/leads.csv', wrap(async (req, res) => {
+  const csv = leadsToCsv(await listLeads(5000, stageParam(req.query.stage)));
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="smori-leads-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(csv);
+}));
 app.post('/api/leads/:id/handled', wrap(async (req, res) => { await markLead(param(req, 'id'), Boolean(req.body?.handled ?? true)); res.json({ ok: true }); }));
+app.post('/api/leads/:id/stage', wrap(async (req, res) => {
+  const stage = stageParam(req.body?.stage);
+  if (!stage) { res.status(400).json({ error: `stage must be one of ${STAGES.join(', ')}` }); return; }
+  res.json(await setLeadStage(param(req, 'id'), stage));
+}));
 
 // ---- projects ----
 app.get('/api/projects', wrap(async (_req, res) => {

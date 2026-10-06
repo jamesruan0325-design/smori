@@ -56,6 +56,27 @@ MEASUREMENT AND INSTALLATION
 CARE
 - Most fabrics can be dusted with a feather duster or vacuumed gently with a brush attachment; spot-clean with mild soap. Follow the care guide that comes with the product.
 
+MATCHING NEEDS TO SOLUTIONS (only the options listed in the facts above; the final choice is made with the customer at the consultation)
+- Bedroom / media room, sleep or full darkness: Duette in room-darkening or blackout opacity, Designer Roller in blackout fabric, Vignette in room-darkening fabric, or lined/blackout-lined drapery; layering a sheer with a blackout layer; side channels or an outside mount reduce edge light.
+- Living / family room, soft daylight with view: Silhouette or Pirouette (sheer shadings), Luminette for wide windows and sliding doors, sheers or layered drapery.
+- Street-facing or bathroom privacy: light-filtering or privacy fabrics, top-down/bottom-up lift (Duette, Vignette, Silhouette); for night-time privacy add a second layer, since sheers alone do not give privacy with interior lights on.
+- Heat, cold, energy and insulation: Duette honeycomb (cellular construction traps air for insulation). Silhouette also offers UV protection.
+- Sliding doors and very wide windows: Luminette, or drapery.
+- Decor and a tailored look: Vignette Roman shades, Alustra (luxury collection), custom drapery with custom hardware.
+- High or hard-to-reach windows, many windows, schedules, homes with children or pets: PowerView motorization (or cordless operation).
+- Smart home: PowerView with app, schedules and voice assistants; compatibility with a specific existing system is confirmed at the consultation.
+
+SERVICE AREA
+- Based in Irvine; serving ${BUSINESS.serviceArea}. Whether a specific address or city is covered is confirmed by our team; never tell a customer that we do not serve their area.
+
+CONSULTATION
+- The ${BUSINESS.consultation} is how a project starts: a consultant visits, reviews the windows and needs, shows samples, takes precise measurements, and then the team prepares a quote. Pricing is only provided by our team after that, never in this chat.
+- To book: the customer leaves a name and a phone number or email (optionally ZIP code and a preferred time); a team member contacts them during business hours to confirm the appointment. Or call ${BUSINESS.phone}.
+
+BRANDS
+- We carry Hunter Douglas (the product lines above) and make custom drapery.
+- ALTA Window Fashions: no product details, features, prices or promotion terms for ALTA are confirmed in this knowledge base. If a customer asks about ALTA, say our team will confirm the details at the consultation; do not describe ALTA products.
+
 WHAT WE CANNOT ANSWER HERE (must be confirmed by a person)
 - Prices, quotes, discounts, financing; production or delivery lead times; warranty terms and claims; product availability for a specific window; compatibility with a specific smart-home setup; anything about an existing order.
 `;

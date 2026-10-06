@@ -140,24 +140,47 @@ function readFacts(form) {
   delete o.product_custom; return o;
 }
 
+const STAGES = [['new','新线索'],['qualified','已确认需求'],['consultation_requested','申请预约咨询'],['handed_to_human','转人工']];
+const STAGE_ZH = Object.fromEntries(STAGES);
+let leadStage = '';
 async function loadLeadsCount() { try { const l = await api('/api/leads'); const open = l.filter(x => !x.handled).length; $('#leadsCount').textContent = open ? open + ' 待处理' : l.length ? '全部已处理' : '暂无'; } catch {} }
-$('#leadsBtn').onclick = async () => {
+function leadField(label, v) { return v ? `<div><span style="color:var(--muted)">${label}</span> ${esc(Array.isArray(v) ? v.join(', ') : v)}</div>` : ''; }
+function leadCard(l) {
+  const contact = [l.phone, l.email, l.wechat && '微信 '+l.wechat].filter(Boolean).map(esc).join(' · ') || '<span style="color:var(--muted)">（还没有联系方式）</span>';
+  const stageSel = `<select onchange="api('/api/leads/${l.id}/stage',{method:'POST',body:{stage:this.value}}).then(()=>showLeads())" style="width:auto;padding:4px 8px;font-size:12px">${STAGES.map(([v,t]) => `<option value="${v}" ${l.stage===v?'selected':''}>${t}</option>`).join('')}</select>`;
+  return `<div class="panel" style="border-color:${l.handled?'var(--line)':'var(--gold)'}">
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div><b style="color:#fff">${esc(l.name||'（未留姓名）')}</b> · ${contact} ${l.city?'· '+esc(l.city):''}
+        <span class="badge" style="border-color:var(--gold);color:var(--gold)">${esc(STAGE_ZH[l.stage]||l.stage)}</span><span class="badge">${esc(l.lead_source||'')}</span><span class="badge">${l.language==='zh'?'中文':'English'}</span>${l.handled?'<span class="badge">已处理</span>':''}</div>
+      <div style="font-size:12px;color:var(--muted)">${esc((l.updatedAt||l.createdAt||'').replace('T',' ').slice(0,16))}</div>
+    </div>
+    ${l.summary ? `<div style="margin-top:8px">${esc(l.summary)}</div>` : ''}
+    <div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px;font-size:13px">
+      ${leadField('ZIP', l.zip ? l.zip + (l.zip_in_area ? '（OC 常规服务区）' : '（需确认服务范围）') : '')}${leadField('房间', l.room_type)}${leadField('窗户数量', l.window_count)}${leadField('大致尺寸', l.approximate_size)}
+      ${leadField('主要需求', l.primary_need)}${leadField('电动', l.motorization_interest)}${leadField('客户预算', l.budget_range)}${leadField('AI 推荐', l.products_recommended)}
+      ${leadField('预约意向', l.consultation_interest && ({yes:'是',no:'否',unknown:'未谈到'})[l.consultation_interest])}${leadField('希望时间', l.preferred_time)}${leadField('来源页面', l.page && l.page.url)}${leadField('UTM', l.page && l.page.utm && Object.entries(l.page.utm).map(([k,v])=>k+'='+v).join(' '))}
+    </div>
+    ${l.interest || l.notes ? `<div style="margin-top:6px;color:var(--muted)">${esc(l.interest||'')} ${esc(l.notes||'')}</div>` : ''}
+    ${l.stage_history && l.stage_history.length ? `<div style="margin-top:6px;font-size:12px;color:var(--muted)">${l.stage_history.map(h => `${esc(STAGE_ZH[h.stage]||h.stage)} ${esc(h.at.replace('T',' ').slice(5,16))}${h.by==='staff'?'（手动）':''}`).join(' → ')}</div>` : ''}
+    ${l.transcript && l.transcript.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--gold);font-size:12px">查看对话（${l.transcript.length} 条）</summary><div class="log">${l.transcript.map(m => (m.role==='user'?'客户：':'助手：') + esc(m.content)).join('\n')}</div></details>` : ''}
+    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font-size:12px;color:var(--muted)">阶段</span>${stageSel}
+      <button class="btn small" onclick="api('/api/leads/${l.id}/handled',{method:'POST',body:{handled:${l.handled?'false':'true'}}}).then(()=>showLeads())">${l.handled?'标记为未处理':'标记为已处理'}</button></div>
+  </div>`;
+}
+async function showLeads() {
   current = null; location.hash = 'leads';
-  const leads = await api('/api/leads');
-  $('#view').innerHTML = `<h2>网站咨询线索 <span style="font-size:13px;color:var(--muted)">${leads.length} 条</span></h2>
-    <p style="color:var(--muted);font-size:13px">来自网站 AI 客服的"转人工"表单和对话中留下的联系方式。新线索会同时推送到手机 ntfy。</p>
-    ${leads.length ? leads.map(l => `<div class="panel" style="border-color:${l.handled?'var(--line)':'var(--gold)'}">
-      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
-        <div><b style="color:#fff">${esc(l.name||'（未留姓名）')}</b> · ${[l.phone, l.email, l.wechat && '微信 '+l.wechat].filter(Boolean).map(esc).join(' · ')} ${l.city?'· '+esc(l.city):''}
-          <span class="badge">${esc(l.reason)}</span><span class="badge">${l.language==='zh'?'中文':'English'}</span><span class="badge">${l.source==='chat'?'对话中留下':'转人工表单'}</span></div>
-        <div style="font-size:12px;color:var(--muted)">${esc((l.createdAt||'').replace('T',' ').slice(0,16))}</div>
-      </div>
-      <div style="margin-top:8px">${esc(l.interest||'')} ${l.window_count?'· 窗户 '+esc(l.window_count):''} ${l.preferred_time?'· 时间 '+esc(l.preferred_time):''}<br><span style="color:var(--muted)">${esc(l.notes||'')}</span></div>
-      ${l.transcript && l.transcript.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--gold);font-size:12px">查看对话（${l.transcript.length} 条）</summary><div class="log">${l.transcript.map(m => (m.role==='user'?'客户：':'助手：') + esc(m.content)).join('\n')}</div></details>` : ''}
-      <div style="margin-top:10px"><button class="btn small" onclick="api('/api/leads/${l.id}/handled',{method:'POST',body:{handled:${l.handled?'false':'true'}}}).then(()=>$('#leadsBtn').click())">${l.handled?'标记为未处理':'标记为已处理'}</button></div>
-    </div>`).join('') : '<p style="color:var(--muted)">还没有线索。</p>'}`;
+  const all = await api('/api/leads');
+  const leads = leadStage ? all.filter(l => l.stage === leadStage) : all;
+  const count = (st) => all.filter(l => l.stage === st).length;
+  const tab = (v, t, n) => `<button class="btn small" style="${leadStage===v?'background:var(--gold);color:#000':'border-color:var(--line);color:var(--muted)'}" onclick="leadStage='${v}';showLeads()">${t} ${n}</button>`;
+  $('#view').innerHTML = `<h2>网站咨询线索 <span style="font-size:13px;color:var(--muted)">${all.length} 条</span></h2>
+    <p style="color:var(--muted);font-size:13px">AI Sales Agent 每个对话一条线索，阶段只会往前走：新线索 → 已确认需求 → 申请预约咨询 → 转人工。从"已确认需求"开始，每个阶段推送一次 ntfy。也包含旧版 AI 客服"转人工"表单的线索。</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${tab('', '全部', all.length)}${STAGES.map(([v,t]) => tab(v, t, count(v))).join('')}
+      <a class="btn small" href="/api/leads.csv${leadStage?'?stage='+leadStage:''}" download>导出 CSV</a></div>
+    ${leads.length ? leads.map(leadCard).join('') : '<p style="color:var(--muted)">这个阶段还没有线索。</p>'}`;
   loadLeadsCount();
-};
+}
+$('#leadsBtn').onclick = () => showLeads();
 $('#promosBtn').onclick = async () => {
   current = null; location.hash = 'promotions';
   $('#view').innerHTML = '<h2>官网活动跟踪</h2><p style="color:var(--muted)">加载中…</p>';

@@ -8,7 +8,7 @@
 .sma-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--sma-line); background: var(--sma-panel); }
 .sma-title { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 18px; letter-spacing: 1px; color: #fff; }
 .sma-title small { display: block; font-family: inherit; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--sma-gold); font-family: 'Inter', sans-serif; }
-.sma-head-actions { display: flex; gap: 6px; }
+.sma-head-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .sma-head button { background: none; border: 1px solid var(--sma-line); color: var(--sma-muted); font-size: 11px; letter-spacing: 1px; padding: 6px 10px; cursor: pointer; }
 .sma-head button:hover { border-color: var(--sma-gold); color: var(--sma-gold); }
 .sma-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
@@ -36,4 +36,9 @@
 .sma-form .actions button { border: 1px solid var(--sma-line); background: none; color: var(--sma-text); padding: 8px 14px; cursor: pointer; font-size: 12px; }
 .sma-form .actions button.primary { background: var(--sma-gold); color: #000; border-color: var(--sma-gold); }
 .sma-form .err { color: #e07070; font-size: 12px; }
+.sma-head button.sma-book { border-color: var(--sma-gold); color: var(--sma-gold); }
+.sma-head button.sma-book:hover { background: var(--sma-gold); color: #000; }
+.sma-cta { align-self: flex-start; }
+.sma-cta button { background: var(--sma-gold); color: #000; border: 0; padding: 9px 16px; cursor: pointer; font: inherit; font-size: 12px; letter-spacing: 1px; }
+.sma-cta button:hover { background: var(--sma-gold-light); }
 @media (max-width: 480px) { .sma-panel { right: 8px; left: 8px; width: auto; max-width: none; bottom: 84px; height: calc(100vh - 100px); } .sma-bubble { right: 16px; bottom: 16px; } }

@@ -44,6 +44,12 @@ export const config = {
   chatEffort: env('CLAUDE_CHAT_EFFORT', 'medium') as 'low' | 'medium' | 'high',
   chatRatePerHour: Number(env('CHAT_RATE_PER_HOUR', '40')),
   chatMaxTurns: Number(env('CHAT_MAX_TURNS', '40')),
+  /** ---- AI Sales Agent (agent: "sales" from the widget) ---- */
+  /** ZIP prefixes treated as a preliminary "likely in our service area" signal (Orange County). Never used to refuse anyone. */
+  serviceZipPrefixes: env('SERVICE_ZIP_PREFIXES', '926,927,928').split(',').map((s) => s.trim()).filter((s) => /^\d{1,5}$/.test(s)),
+  /** Model that extracts structured lead fields from the conversation (runs after the reply is sent). */
+  leadModel: env('CLAUDE_LEAD_MODEL', env('CLAUDE_CHAT_MODEL', 'claude-opus-5')),
+  leadEffort: env('CLAUDE_LEAD_EFFORT', 'low') as 'low' | 'medium' | 'high',
   /** Set to true only for local testing without Shopify's proxy signature. */
   proxySignatureOptional: env('PROXY_SIGNATURE_OPTIONAL', 'false') === 'true',
   apiVersion: env('SHOPIFY_API_VERSION', '2026-07'),
