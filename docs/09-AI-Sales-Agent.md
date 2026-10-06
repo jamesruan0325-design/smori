@@ -65,9 +65,9 @@
    - 覆盖通过 HTTP 走完 new → qualified → consultation_requested → handed_to_human 的全过程。
 2. **在 Shopify 预览主题中真实测试**（需要先部署后端；旧的线上组件不发 `agent: "sales"`，所以部署不会改变线上行为）：
    1. `cd ~/smori-deploy && git pull && cd photo-assistant && fly deploy -a smori-photo-assistant`
-   2. 把 `theme/` 推到**未发布**的预览主题：`shopify theme push --store smori-9216.myshopify.com --theme 166870188249 --path theme`。
+   2. 把主题推到一个**未发布**的预览主题（注意：166870188249 是**正式主题**，不能推）。推之前先用 `shopify theme list --store smori-9216.myshopify.com` 确认目标主题的 role 是 `unpublished`，再推：`shopify theme push --store smori-9216.myshopify.com --theme <未发布主题ID> --path theme --only sections/smori-assistant.liquid --only assets/smori-assistant.js --only assets/smori-assistant.css`。
    3. 在主题编辑器 → AI Assistant (chat) → Mode 选择 "AI Sales Agent"，保存。只影响这个预览主题。
-   4. 打开 `https://smori-9216.myshopify.com?preview_theme_id=166870188249`，按下面四步聊：
+   4. 打开 `https://smori-9216.myshopify.com?preview_theme_id=<未发布主题ID>`，按下面四步聊：
 
 | 步骤 | 对话 | 预期阶段 |
 |---|---|---|
