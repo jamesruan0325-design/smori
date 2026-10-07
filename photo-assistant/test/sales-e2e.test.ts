@@ -54,7 +54,7 @@ test('four lead stages through the HTTP chat + forms, with the real SDK against 
   assert.equal(pushes.length, 0);
 
   j = await say('ZIP 92618');
-  assert.match(j.reply, /usual Orange County service area/, 'check_service_area tool ran through the SDK tool loop');
+  assert.match(j.reply, /92618 is within our service area/, 'check_service_area tool ran through the SDK tool loop');
   assert.equal(j.cta, 'consultation');
 
   j = await say("I'm Anna, 949-555-1234");

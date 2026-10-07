@@ -37,7 +37,7 @@ ZIP, CONTACT DETAILS AND CONVERSION
    - invite them to the ${BUSINESS.consultation} and, naturally, ask for their ZIP code (call check_service_area when they give it);
    - ask for their name and a phone number or email only when they want to book the consultation or need a person to follow up (a preferred day/time is optional). Ask for one or two things per message, not a form.
 10. If the customer volunteers a ZIP code or contact details earlier, use them (call check_service_area for a ZIP), but do not ask for more until conversion intent appears.
-11. ZIP codes: never tell a customer that we do not serve their area, and never refuse anyone because of a ZIP code; if it is outside the usual area, say the team will confirm coverage.
+11. ZIP codes: never tell a customer that we do not serve their area, and never refuse anyone because of a ZIP code; if it is outside the usual area, say the team will confirm coverage. For a ZIP in the service area, say only that it is within our service area (e.g. "92618 在我们的服务范围内").
 
 TOOLS
 12. When the customer agrees to a consultation and has given a name plus a phone number or email, call request_consultation. When the customer asks to talk to a person, or you cannot help with what they need, call request_human (with their contact details if they gave any) and give the phone number ${BUSINESS.phone}.
@@ -46,6 +46,7 @@ TOOLS
 HARD RULES
 A. Prices: never state, estimate, compare or imply any price, price range, per-window or per-square-foot cost, discount, financing or promotion terms, even roughly, even if the customer insists or names a number. Say that pricing depends on the exact products, sizes and options and is provided by our team after the free consultation and measurement (中文：具体价格需要根据产品、尺寸和配置，由顾问上门测量后提供报价). If the customer shares a budget, you may note it for the team, but never say whether it is enough.
 B. Never state production or delivery lead times, installation dates or warranty terms; these are confirmed by our team.
+B2. You have no schedule, project or team-location data. Never say or imply that we often, recently, currently or this week work, install, have appointments, projects or teams in a customer's area or neighborhood (e.g. never "我们在这周一带经常施工", "we just finished a project near you", "our team is in your area this week"). About a location, say only whether it is within our service area, from check_service_area or the facts.
 C. Use only the FACTS. Never invent products, models, specs, features, availability, promotions or policies. If something is not in the facts or depends on the customer's specific windows or house, say it needs to be confirmed by our team.
 D. ALTA Window Fashions: the facts contain no confirmed ALTA product, feature, price or promotion details. If asked about ALTA, say our team will confirm the details at the consultation; do not describe ALTA products or promotions.
 E. Do not discuss competitors' products or topics unrelated to window treatments and our business; politely steer back.
@@ -138,8 +139,8 @@ export function checkServiceArea(zipInput: string, prefixes = config.serviceZipP
     zip,
     likely_in_area: inArea,
     content: inArea
-      ? `ZIP ${zip} is in our usual Orange County service area. You can tell the customer we regularly work in their area; the exact visit is confirmed by our team.`
-      : `ZIP ${zip} is not in the preliminary list. Do NOT say we do not serve the area. Tell the customer our team will confirm coverage for their location when they reach out, and continue helping normally.`,
+      ? `ZIP ${zip} is within our service area (Orange County). Tell the customer that ${zip} is within our service area, nothing more about the location: we have no schedule or project data, so do not say or imply that we often, recently or this week work, install or have appointments or teams near them. The visit time is confirmed by our team.`
+      : `ZIP ${zip} is not in the preliminary list. Do NOT say we do not serve the area. Tell the customer our team will confirm coverage for their location when they reach out, and continue helping normally. Do not make any claim about work, projects or appointments near them.`,
   };
 }
 
@@ -160,11 +161,11 @@ export const ExtractSchema = z.object({
   products_recommended: z.array(z.string()).describe('Product names the assistant recommended in this conversation'),
   consultation_interest: z.enum(['yes', 'no', 'unknown']).describe('yes only if the customer explicitly agreed to or asked for a consultation / visit / measurement'),
   wants_human: z.boolean().describe('true if the customer asked to talk to a person'),
-  summary: z.string().describe('2-3 sentence summary for the sales team in Simplified Chinese: project, needs, intent, next step. No prices.'),
+  summary: z.string().describe('1-3 sentences for the sales team in Simplified Chinese about the PROJECT only: rooms, windows, needs, products discussed, what the customer wants next. Do NOT mention contact details, name, ZIP, or whether they were given, and do NOT mention the lead stage. No prices.'),
 });
 export type Extracted = z.infer<typeof ExtractSchema>;
 
-const EXTRACT_SYSTEM = `You extract CRM fields from a website chat between a customer and the AI consultant of a window-treatment studio. Use only what is in the transcript. Contact details, ZIP and budget must come from the CUSTOMER's own messages; never take them from the assistant and never guess. Use null for anything not stated. products_recommended lists product names the assistant recommended. The summary is for the sales team, in Simplified Chinese, and must not contain prices.`;
+const EXTRACT_SYSTEM = `You extract CRM fields from a website chat between a customer and the AI consultant of a window-treatment studio. Use only what is in the transcript. Contact details, ZIP and budget must come from the CUSTOMER's own messages; never take them from the assistant and never guess. Use null for anything not stated. products_recommended lists product names the assistant recommended. The summary is for the sales team, in Simplified Chinese, describes only the project and needs, and must not contain prices, contact details, ZIP, or statements about whether contact details were given (those are tracked as separate fields and may change after this conversation).`;
 
 export type Extractor = (history: ChatMessage[]) => Promise<Extracted | null>;
 
@@ -207,7 +208,7 @@ export function sanitizeExtraction(x: Extracted, history: ChatMessage[]): LeadPa
     products_recommended: [...new Set(products)],
     consultation_interest: x.consultation_interest,
     wants_human: x.wants_human === true ? true : undefined,
-    summary: str(x.summary, 600),
+    needs_summary: str(x.summary, 600),
   };
 }
 

@@ -47,7 +47,10 @@ export interface Lead {
   consultation_interest?: 'yes' | 'no' | 'unknown';
   wants_human?: boolean;
   preferred_time?: string;
+  /** Sales-team summary, rebuilt from the latest lead state on every upsert (narrative + current status). */
   summary?: string;
+  /** AI narrative about the project and needs only (no contact / ZIP / stage claims); input to `summary`. */
+  needs_summary?: string;
   notes?: string;
   page?: PageContext;
   transcript?: { role: string; content: string }[];
@@ -157,7 +160,7 @@ export function computeStage(l: Partial<Lead>, signals: StageSignals = {}): Stag
 
 export type LeadPatch = Partial<Omit<Lead, 'id' | 'createdAt' | 'conversationId' | 'stage' | 'stage_history' | 'notified'>>;
 
-const MERGE_SKIP = new Set(['products_recommended', 'transcript', 'page', 'consultation_interest', 'wants_human']);
+const MERGE_SKIP = new Set(['products_recommended', 'transcript', 'page', 'consultation_interest', 'wants_human', 'summary']);
 
 /** Merges non-empty values; flags only move forward (yes / true are never reset by a later extraction). */
 export function mergeLead(base: Lead, patch: LeadPatch): Lead {
@@ -175,6 +178,38 @@ export function mergeLead(base: Lead, patch: LeadPatch): Lead {
     if (patch.consultation_interest !== 'unknown' || !base.consultation_interest) out.consultation_interest = patch.consultation_interest;
   }
   return out;
+}
+
+/** Clauses that state contact / ZIP / stage status. Those facts come from the lead fields, never from AI text that may be out of date. */
+const STATUS_CLAIM_RE = /(尚未|还未|还没|没有|未)(留|提供|给|填)|联系方式|联系电话|电话号码|留了?电话|电话\s*\d|邮箱|e-?mail|姓名|名字|ZIP|邮编|contact (info|details)|phone number|阶段|\bstage\b/i;
+
+/** Drops clauses of an AI narrative that make contact / ZIP / stage claims, keeping the rest. */
+export function stripStatusClaims(text: string): string {
+  const parts = text.split(/([，,。；;！？!?\n]+|\.(?=\s|$))/);
+  let out = '';
+  for (let i = 0; i < parts.length; i += 2) {
+    const clause = parts[i] ?? '';
+    const delim = parts[i + 1] ?? '';
+    if (!clause.trim() || STATUS_CLAIM_RE.test(clause)) continue;
+    out += clause + delim;
+  }
+  out = out.trim().replace(/^[，,。；;！？!?\s]+/, '').replace(/[，,；;]+$/, '');
+  if (out && /[\u4e00-\u9fff]$/.test(out)) out += '。';
+  return out;
+}
+
+/** Deterministic status line from the current lead fields. */
+export function leadStatusLine(l: Lead): string {
+  const got = [l.name && `姓名 ${l.name}`, l.phone && `电话 ${l.phone}`, l.email && `邮箱 ${l.email}`, l.wechat && `微信 ${l.wechat}`].filter(Boolean);
+  const contact = hasContact(l) ? `联系信息：${got.join('、')}` : `联系信息：${l.name ? `姓名 ${l.name}，` : ''}尚未留下电话或邮箱`;
+  const zip = l.zip ? `ZIP ${l.zip}（${l.zip_in_area ? 'OC 常规服务区' : '服务范围待团队确认'}）` : '';
+  const stage = l.stage ? `阶段：${STAGE_LABEL_ZH[l.stage]}${l.preferred_time ? `，希望时间 ${l.preferred_time}` : ''}` : '';
+  return `【当前状态】${[contact, zip, stage].filter(Boolean).join('；')}`;
+}
+
+/** summary = AI needs narrative (status claims removed) + status line built from the latest fields. */
+export function composeSummary(l: Lead): string {
+  return [stripStatusClaims(l.needs_summary ?? ''), leadStatusLine(l)].filter(Boolean).join('\n');
 }
 
 const PUSH_TITLE: Record<Stage, string> = { new: '', qualified: 'SMORI 销售线索：已确认需求', consultation_requested: 'SMORI 销售线索：申请预约咨询', handed_to_human: 'SMORI 销售线索：转人工' };
@@ -242,6 +277,10 @@ export function upsertConversationLead(conversationId: string, patch: LeadPatch,
     if (stage === 'handed_to_human') merged.reason = 'human';
     else if (stage === 'consultation_requested') merged.reason = 'consultation';
     merged.updatedAt = at;
+    // leads saved before needs_summary existed: reuse their old AI summary as the narrative
+    if (existing && existing.needs_summary === undefined && !patch.needs_summary) merged.needs_summary = existing.summary ?? '';
+    merged.needs_summary = stripStatusClaims(merged.needs_summary ?? '');
+    merged.summary = composeSummary(merged); // always rebuilt from the latest state, before any push
 
     const notified = new Set(merged.notified ?? []);
     const shouldPush = stage !== 'new' && !notified.has(stage) && rank(stage) > Math.max(-1, ...[...notified].map(rank));

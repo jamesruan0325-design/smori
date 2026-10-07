@@ -72,7 +72,7 @@ test('one lead per conversation; stages advance forward only; one push per stage
   assert.match(pushes[0], /已确认需求/);
   assert.match(pushes[0], /Anna · 949-555-1234/);
 
-  l = await upsertConversationLead(conv, { summary: 'again' }, { notify });
+  l = await upsertConversationLead(conv, { needs_summary: 'again' }, { notify });
   assert.equal(l!.stage, 'qualified');
   assert.equal(pushes.length, 1, 'same stage is not pushed twice');
 
@@ -217,11 +217,11 @@ test('salesTurn: tools, consultation without contact is held, then booked; CTA s
   const { pushes, notify } = recorder();
   const conv = 'conv-turn-0001';
   // 1) ZIP check
-  let s = scripted([{ tool: { name: 'check_service_area', input: { zip: '92620' } } }, { text: 'We work in your area regularly.' }]);
+  let s = scripted([{ tool: { name: 'check_service_area', input: { zip: '92620' } } }, { text: '92620 is within our service area.' }]);
   let r = await sales.salesTurn([{ role: 'user', content: 'Bedroom blackout, my ZIP is 92620' }], conv, { url: 'https://smoriwindowfashion.com/pages/cases' }, { create: s.create, notify });
-  assert.equal(r.reply, 'We work in your area regularly.');
+  assert.equal(r.reply, '92620 is within our service area.');
   assert.equal(r.cta, 'consultation', 'a ZIP the customer gives (check_service_area ran) shows the consultation button');
-  assert.match(s.calls[1].messages.at(-1).content[0].content, /usual Orange County service area/);
+  assert.match(s.calls[1].messages.at(-1).content[0].content, /ZIP 92620 is within our service area \(Orange County\)/);
   assert.deepEqual(s.calls[0].tools.map((t: any) => t.name), ['check_service_area', 'request_consultation', 'request_human']);
   let lead = await getConversationLead(conv);
   assert.equal(lead!.zip, '92620');
@@ -283,7 +283,8 @@ test('extractLead: background extraction builds the qualified lead from the conv
   const l = await sales.extractLead(history, conv, { utm: { utm_source: 'google' } }, { notify, extract: async () => emptyExtract({ name: '王丽', phone: '949-555-7788', zip: '92618', room_type: '主卧', window_count: '3', primary_need: '遮光', products_recommended: ['Duette'], summary: '主卧 3 扇窗遮光，已留电话。' }) });
   assert.equal(l!.stage, 'qualified');
   assert.equal(l!.language, 'zh');
-  assert.equal(l!.summary, '主卧 3 扇窗遮光，已留电话。');
+  assert.equal(l!.needs_summary, '主卧 3 扇窗遮光。', 'the AI clause about contact status is dropped from the narrative');
+  assert.equal(l!.summary, '主卧 3 扇窗遮光。\n【当前状态】联系信息：姓名 王丽、电话 949-555-7788；ZIP 92618（OC 常规服务区）；阶段：已确认需求');
   assert.equal(l!.page!.utm!.utm_source, 'google');
   assert.equal(pushes.length, 1);
   assert.equal(await sales.extractLead(history, 'conv-extract-02', undefined, { extract: async () => null }), null, 'refused extraction saves nothing');
@@ -338,4 +339,68 @@ test('proxy: /chat with agent=sales returns a CTA and extracts in the background
   assert.match(csv, /'=HYPERLINK/, 'formula-like cells are neutralised');
   assert.match(csv, /"a, ""b""\nc"/);
   for (const k of Object.keys(proxy.salesDeps)) delete (proxy.salesDeps as any)[k];
+});
+
+test('summary is rebuilt from the latest lead state: contact from the form replaces an out-of-date "no contact yet" summary', async () => {
+  const { pushes, notify } = recorder();
+  const conv = 'conv-summary-refresh-1';
+  const history = [{ role: 'user' as const, content: '主卧想要遮光，3 扇窗' }, { role: 'assistant' as const, content: '推荐 Duette 遮光款。' }];
+  // background extraction while the customer has not given contact details yet (the model even writes that into the summary)
+  let l = await sales.extractLead(history, conv, undefined, { notify, extract: async () => emptyExtract({ room_type: '主卧', window_count: '3', primary_need: '遮光', products_recommended: ['Duette'], summary: '客户想为主卧 3 扇窗做遮光，倾向 Duette。尚未留下姓名和联系方式。' }) });
+  assert.equal(l!.stage, 'new');
+  assert.match(l!.summary!, /尚未留下电话或邮箱/, 'status line is accurate at this point');
+  // then the booking form arrives with name + phone
+  const res = fakeRes();
+  Object.assign(proxy.salesDeps, { notify });
+  await proxy.handleLead({ body: { conversationId: conv, agent: 'sales', kind: 'consultation', name: 'Test Bonnie', phone: '949-555-0100', zip: '92618', language: 'zh' }, headers: {}, ip: '10.9.0.1' } as any, res as any);
+  for (const k of Object.keys(proxy.salesDeps)) delete (proxy.salesDeps as any)[k];
+  assert.equal(res.body.stage, 'consultation_requested');
+  l = await getConversationLead(conv);
+  assert.equal(l!.summary, '客户想为主卧 3 扇窗做遮光，倾向 Duette。\n【当前状态】联系信息：姓名 Test Bonnie、电话 949-555-0100；ZIP 92618（OC 常规服务区）；阶段：申请预约咨询');
+  assert.equal(pushes.length, 1);
+  assert.match(pushes[0], /SMORI 销售线索：申请预约咨询/);
+  assert.match(pushes[0], /Test Bonnie/);
+  assert.match(pushes[0], /电话 949-555-0100/);
+  assert.doesNotMatch(pushes[0], /尚未留下|未留.*联系|没有.*联系方式/, 'the push never carries the stale "no contact" text');
+
+  // a later extraction computed from an older transcript cannot bring the stale claim back
+  l = await sales.extractLead(history, conv, undefined, { notify, extract: async () => emptyExtract({ summary: '客户想为主卧 3 扇窗做遮光。客户尚未提供电话或邮箱。' }) });
+  assert.doesNotMatch(l!.summary!, /尚未提供|尚未留下/);
+  assert.match(l!.summary!, /Test Bonnie、电话 949-555-0100/);
+  assert.equal((await listLeads()).filter((x) => x.conversationId === conv).length, 1, 'still one lead');
+  assert.equal(pushes.length, 1, 'no extra push');
+});
+
+test('summary refresh also covers the chat tool path and leads saved before this fix', async () => {
+  const { pushes, notify } = recorder();
+  // a lead written by the previous version: AI summary with a stale contact claim, no needs_summary field
+  const old = await upsertConversationLead('conv-summary-legacy-1', { room_type: '客厅', primary_need: '隐私' }, { notify });
+  const file = path.join(tmp, 'leads', `${old!.id}.json`);
+  const raw = JSON.parse(await fs.readFile(file, 'utf8'));
+  delete raw.needs_summary;
+  raw.summary = '客厅落地窗想要白天隐私，客户尚未留下联系方式。';
+  await fs.writeFile(file, JSON.stringify(raw));
+  const s = scripted([{ tool: { name: 'request_consultation', input: { name: 'Amy', email: 'amy@example.com' } } }, { text: 'ok' }]);
+  await sales.salesTurn([{ role: 'user', content: '帮我预约，Amy，amy@example.com' }], 'conv-summary-legacy-1', undefined, { create: s.create, notify });
+  const l = await getConversationLead('conv-summary-legacy-1');
+  assert.equal(l!.summary, '客厅落地窗想要白天隐私。\n【当前状态】联系信息：姓名 Amy、邮箱 amy@example.com；阶段：申请预约咨询');
+  assert.doesNotMatch(pushes.join('\n'), /尚未留下/);
+});
+
+test('stripStatusClaims keeps project clauses and drops contact / ZIP / stage claims', () => {
+  assert.equal(leads.stripStatusClaims('客户想为主卧做遮光，尚未留下姓名和联系方式。希望周末上门。'), '客户想为主卧做遮光，希望周末上门。');
+  assert.equal(leads.stripStatusClaims('Wants blackout for the master bedroom. Has not provided contact details yet.'), 'Wants blackout for the master bedroom.');
+  assert.equal(leads.stripStatusClaims('想要 PowerView，用手机 app 控制。'), '想要 PowerView，用手机 app 控制。', 'phone-as-device is not a contact claim');
+  assert.equal(leads.stripStatusClaims('尚未提供 ZIP。'), '');
+});
+
+test('location answers: only "within our service area", no claims of nearby / recent / frequent work', () => {
+  const inArea = sales.checkServiceArea('92618').content;
+  assert.match(inArea, /92618 is within our service area/);
+  assert.doesNotMatch(inArea, /we regularly work|usual Orange County service area/i);
+  assert.match(inArea, /do not say or imply that we often, recently or this week work/);
+  assert.match(sales.checkServiceArea('90012').content, /Do not make any claim about work, projects or appointments near them/);
+  assert.match(sales.SALES_SYSTEM, /You have no schedule, project or team-location data/);
+  assert.match(sales.SALES_SYSTEM, /我们在这周一带经常施工/);
+  assert.match(sales.SALES_SYSTEM, /92618 在我们的服务范围内/);
 });
