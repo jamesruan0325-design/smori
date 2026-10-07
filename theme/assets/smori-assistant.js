@@ -109,7 +109,8 @@
   /* sales mode: inline "book a consultation" button, shown once per conversation when the agent sees buying intent */
   function salesCta(j) {
     if (j.cta === 'booked' || j.cta === 'human_sent') { state.booked = true; save(); return; }
-    if (j.cta === 'human_form') { if (j.handoff && !j.leadSaved) add('sys', t('handoffHint')); openForm('human'); return; }
+    /* the customer wants a person: capture their contact with the form (no "call us" hint here; our number is given only when asked) */
+    if (j.cta === 'human_form') { openForm('human'); return; }
     if (j.cta === 'consultation' && !state.ctaShown && !state.booked) {
       state.ctaShown = true; save();
       var d = document.createElement('div'); d.className = 'sma-cta';
