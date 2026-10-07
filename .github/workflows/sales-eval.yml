@@ -1,0 +1,72 @@
+# Sales Agent fixed eval (real model). Manual only: Actions → "Sales Agent eval" → Run workflow,
+# pick the branch to test. Needs the repository secret ANTHROPIC_API_KEY.
+# Leads go to a temporary directory and push notifications are off: production is never touched.
+name: Sales Agent eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Runs per scenario (hard rules must pass in every run)'
+        default: '3'
+        required: true
+      only:
+        description: 'Scenario ids, comma-separated (empty = all)'
+        default: ''
+        required: false
+      judge:
+        description: 'AI judge (advisory only)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sales-eval
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: photo-assistant
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: photo-assistant/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Unit tests (no API calls)
+        run: npm test
+
+      - name: Sales Agent eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RUNS: ${{ inputs.runs }}
+          ONLY: ${{ inputs.only }}
+          JUDGE: ${{ inputs.judge }}
+        run: |
+          args=(--runs "$RUNS" --out eval-report)
+          if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+          if [ "$JUDGE" != "true" ]; then args+=(--no-judge); fi
+          npm run eval:sales -- "${args[@]}"
+
+      - name: Report
+        if: always()
+        run: |
+          if [ -f eval-report/report.md ]; then cat eval-report/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sales-eval-report
+          path: photo-assistant/eval-report
+          if-no-files-found: ignore

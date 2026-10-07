@@ -12,7 +12,8 @@
     "test": "node --test --import tsx test/*.test.ts",
     "shopify": "shopify",
     "deploy:shopify": "shopify app deploy",
-    "env:pull": "shopify app env pull"
+    "env:pull": "shopify app env pull",
+    "eval:sales": "tsx eval/run-sales-eval.ts"
   },
   "engines": {
     "node": ">=20"
