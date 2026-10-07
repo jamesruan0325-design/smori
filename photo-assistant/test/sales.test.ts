@@ -439,3 +439,21 @@ test('talking to a person: ask for the customer\'s contact instead of giving our
   assert.equal((await getConversationLead('conv-human-ask-02'))!.stage, 'handed_to_human');
   assert.equal(pushes.length, 1);
 });
+
+test('转人工 form confirmation: new text without our phone; booking and legacy form messages unchanged', async () => {
+  const post = async (body: Record<string, unknown>, ip: string) => { const res = fakeRes(); await proxy.handleLead({ body, headers: {}, ip } as any, res as any); return res; };
+  Object.assign(proxy.salesDeps, { notify: async () => {} });
+  const zh = await post({ conversationId: 'conv-handoff-msg-zh', agent: 'sales', kind: 'human', name: '测试', phone: '9495550100', language: 'zh' }, '10.7.0.1');
+  assert.equal(zh.statusCode, 200);
+  assert.equal(zh.body.message, '已收到。我们的顾问会在营业时间内尽快与您联系。');
+  const en = await post({ conversationId: 'conv-handoff-msg-en', agent: 'sales', kind: 'human', name: 'Test', email: 'test@example.com', language: 'en' }, '10.7.0.2');
+  assert.equal(en.body.message, 'Received. Our team will contact you during business hours as soon as possible.');
+  for (const m of [zh.body.message, en.body.message]) assert.doesNotMatch(m, /949|880-1322|致电|call/i);
+
+  // unchanged: the booking form confirmation and the legacy (Q&A mode) form confirmation
+  const booking = await post({ conversationId: 'conv-handoff-msg-bk', agent: 'sales', kind: 'consultation', name: '测试', phone: '9495550100', language: 'zh' }, '10.7.0.3');
+  assert.match(booking.body.message, /^预约申请已收到。.*急事请致电 \(949\) 880-1322。$/);
+  const legacy = await post({ conversationId: 'conv-handoff-msg-lg', name: '测试', phone: '9495550100', language: 'zh' }, '10.7.0.4');
+  assert.match(legacy.body.message, /^已收到，我们的顾问会在营业时间内联系您（.*）。急事请致电 \(949\) 880-1322。$/);
+  for (const k of Object.keys(proxy.salesDeps)) delete (proxy.salesDeps as any)[k];
+});

@@ -133,7 +133,7 @@ export async function handleLead(req: Request, res: Response): Promise<void> {
     }, { language: lang, source: 'form', signals: kind === 'human' ? { human: true } : { consultation: true }, notify: salesDeps.notify, now: salesDeps.now });
     res.json({ ok: true, id: lead?.id, stage: lead?.stage, message: kind === 'consultation'
       ? (lang === 'zh' ? `预约申请已收到。顾问会在营业时间内（${BUSINESS.hours}）联系您确认上门时间。急事请致电 ${BUSINESS.phone}。` : `Your consultation request is in. A team member will contact you during business hours (${BUSINESS.hours}) to confirm the visit. For anything urgent, call ${BUSINESS.phone}.`)
-      : okMessage });
+      : (lang === 'zh' ? '已收到。我们的顾问会在营业时间内尽快与您联系。' : 'Received. Our team will contact you during business hours as soon as possible.') });
     return;
   }
 
