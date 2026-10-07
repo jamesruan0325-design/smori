@@ -166,9 +166,32 @@ test('knowledge and sales prompt: no prices, no ALTA product claims, ZIP never u
   assert.match(KNOWLEDGE, /ALTA Window Fashions: no product details/);
   assert.doesNotMatch(KNOWLEDGE, /ALTA[^\n]*(motoriz|blackout|honeycomb|shutter)/i, 'no ALTA product facts were added');
   assert.match(sales.SALES_SYSTEM, /never state, estimate, compare or imply any price, price range/);
-  assert.match(sales.SALES_SYSTEM, /Never tell a customer that we do not serve their area/);
-  assert.match(sales.SALES_SYSTEM, /do not ask for a name, phone or email early/);
-  assert.match(sales.SALES_SYSTEM, /Do not upsell/);
+  assert.match(sales.SALES_SYSTEM, /never tell a customer that we do not serve their area/i);
+  assert.match(sales.SALES_SYSTEM, /No upselling/);
+});
+
+test('sales prompt: one primary recommendation (+ at most one alternative); ZIP / contact only after conversion intent', () => {
+  const p = sales.SALES_SYSTEM;
+  assert.match(p, /Give ONE primary recommendation/);
+  assert.match(p, /at most ONE alternative/);
+  assert.match(p, /why the primary recommendation fits their stated need better/);
+  assert.match(p, /List several products only when the customer explicitly asks to compare/);
+  assert.match(p, /Knowing the room, window type or need is NOT a reason to ask for a ZIP code, phone or email/);
+  assert.match(p, /Conversion intent means/);
+  assert.doesNotMatch(p, /Offer one to three fitting options/, 'old multi-option instruction removed');
+  assert.doesNotMatch(p, /once the customer has shared some project details, ask for their ZIP/, 'old early-ZIP instruction removed');
+});
+
+test('consultation button follows conversion intent, not just known room / need', async () => {
+  const conv = 'conv-cta-intent-01';
+  await upsertConversationLead(conv, { room_type: 'master bedroom', primary_need: 'blackout' }, { notify: async () => {} });
+  const turn = async (text: string) => sales.salesTurn([{ role: 'user', content: text }], conv, undefined, { create: scripted([{ text: 'ok' }]).create, notify: async () => {} });
+  assert.equal((await turn('Is Duette easy to clean?')).cta, null, 'room + need known, plain question: no booking button');
+  assert.equal((await turn('卧室遮光帘白天会不会太暗？')).cta, null);
+  for (const t of ['How much would this cost?', 'Can you come measure?', 'Do you have samples?', 'How long does installation take?', "I'm interested in the Duette", '这个多少钱', '可以上门量尺吗', '安装要多久', '我对这个方案感兴趣']) {
+    assert.equal((await turn(t)).cta, 'consultation', t);
+  }
+  for (const t of ['我想咨询一下遮光', 'Which is better for privacy?']) assert.doesNotMatch(t, sales.INTENT_RE, `${t} is a question, not conversion intent`);
 });
 
 test('legacy leads (no stage) read as handed_to_human; old assistant flow unchanged', async () => {
@@ -197,7 +220,7 @@ test('salesTurn: tools, consultation without contact is held, then booked; CTA s
   let s = scripted([{ tool: { name: 'check_service_area', input: { zip: '92620' } } }, { text: 'We work in your area regularly.' }]);
   let r = await sales.salesTurn([{ role: 'user', content: 'Bedroom blackout, my ZIP is 92620' }], conv, { url: 'https://smoriwindowfashion.com/pages/cases' }, { create: s.create, notify });
   assert.equal(r.reply, 'We work in your area regularly.');
-  assert.equal(r.cta, 'consultation', 'buying signal (project details) shows the consultation button');
+  assert.equal(r.cta, 'consultation', 'a ZIP the customer gives (check_service_area ran) shows the consultation button');
   assert.match(s.calls[1].messages.at(-1).content[0].content, /usual Orange County service area/);
   assert.deepEqual(s.calls[0].tools.map((t: any) => t.name), ['check_service_area', 'request_consultation', 'request_human']);
   let lead = await getConversationLead(conv);

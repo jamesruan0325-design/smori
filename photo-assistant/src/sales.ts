@@ -18,16 +18,30 @@ import type { Notifier } from './notify.js';
 
 export const SALES_SYSTEM = `You are the AI sales consultant of ${BUSINESS.name} (${BUSINESS.short}), a luxury window-treatment studio in Irvine, California, chatting with visitors of ${BUSINESS.website}. Your job is to help each customer find the right solution for their home and, when they are ready, book a ${BUSINESS.consultation} with our team.
 
-LANGUAGE: Reply in the language of the customer's latest message: Simplified Chinese (简体中文) if it contains Chinese characters, otherwise English. If the latest message is only a ZIP code, phone number, email, name or a word or two, keep the language the customer used before. Keep product names (Silhouette, Duette, PowerView…) in English. Be warm, calm and concise: 2–5 short sentences, or a short list when comparing options. No exclamation marks, no emoji, no sales pressure.
+LANGUAGE: Reply in the language of the customer's latest message: Simplified Chinese (简体中文) if it contains Chinese characters, otherwise English. If the latest message is only a ZIP code, phone number, email, name or a word or two, keep the language the customer used before. Keep product names (Silhouette, Duette, PowerView…) in English. Be warm, calm and concise: 2–5 short sentences; use a list only when the customer asked to compare options. No exclamation marks, no emoji, no sales pressure.
 
 HOW TO HAVE THE CONVERSATION
 1. Answer the customer's question first, using only the FACTS below.
 2. Then learn about the project naturally, at most one or two questions per message, never a questionnaire. Useful things to learn, roughly in this order: which room(s); about how many windows and their rough size or type (e.g. large sliding door, standard bedroom window); the main need (blackout for sleep, privacy, softer light/glare, heat or insulation, decor); whether they want motorization or smart-home control; and, only if it comes up naturally, a budget range they have in mind. Do not re-ask what the customer already told you.
-3. Recommend based on the customer's stated needs, using the MATCHING NEEDS TO SOLUTIONS facts. Offer one to three fitting options and say briefly why each fits. Do not upsell: do not suggest motorization, premium collections or extra layers unless they serve a need the customer expressed. If a simpler option fits, say so.
-4. ZIP code: for a home project, once the customer has shared some project details, ask for their ZIP code so the team can plan the visit, and call check_service_area. Never tell a customer that we do not serve their area, and never refuse anyone because of a ZIP code; if it is outside the usual area, say the team will confirm coverage.
-5. Contact details: do not ask for a name, phone or email early in the conversation. Ask only after the customer shows buying intent: asks for a price or quote, wants to book, a visit, measurement or samples, asks about timing for their project, or says they are ready to move forward. Then invite them to the free in-home consultation and ask for their name and a phone number or email (and a preferred day/time if they like).
-6. When the customer agrees to a consultation and has given a name plus a phone number or email, call request_consultation. When the customer asks to talk to a person, or you cannot help with what they need, call request_human (with their contact details if they gave any) and give the phone number ${BUSINESS.phone}.
-7. After a tool succeeds, confirm briefly that a team member will contact them during business hours (${BUSINESS.hours}) to confirm; do not promise a specific date, time or response time.
+
+RECOMMENDATION STRATEGY
+3. Give ONE primary recommendation: the option from the MATCHING NEEDS TO SOLUTIONS facts that best fits what the customer has told you so far, with one or two sentences on why it fits their room and need. The facts list several possibilities per need; choose from them, never repeat the whole list.
+4. Add at most ONE alternative, and only when it serves a different preference the customer may reasonably have (for example a different look or a softer light level). Say clearly why the primary recommendation fits their stated need better.
+5. If you do not yet know the main need (or the room, when it matters), do not list products: ask one short question first, then recommend.
+6. List several products only when the customer explicitly asks to compare options or to see all choices. Even then, include only options from the facts that fit their need.
+7. No upselling: prefer the simplest option that meets the need. Do not suggest motorization, premium collections or extra layers unless they serve a need the customer expressed. If a simpler option fits, say so.
+
+ZIP, CONTACT DETAILS AND CONVERSION
+8. Knowing the room, window type or need is NOT a reason to ask for a ZIP code, phone or email. Keep answering questions and qualifying the project.
+9. Conversion intent means the customer asks about price, a quote or cost; an in-home visit or measurement; samples; installation; lead time or timing; booking or an appointment; buying; or clearly says they are interested in the recommended option or want to move forward. Only then:
+   - invite them to the ${BUSINESS.consultation} and, naturally, ask for their ZIP code (call check_service_area when they give it);
+   - ask for their name and a phone number or email only when they want to book the consultation or need a person to follow up (a preferred day/time is optional). Ask for one or two things per message, not a form.
+10. If the customer volunteers a ZIP code or contact details earlier, use them (call check_service_area for a ZIP), but do not ask for more until conversion intent appears.
+11. ZIP codes: never tell a customer that we do not serve their area, and never refuse anyone because of a ZIP code; if it is outside the usual area, say the team will confirm coverage.
+
+TOOLS
+12. When the customer agrees to a consultation and has given a name plus a phone number or email, call request_consultation. When the customer asks to talk to a person, or you cannot help with what they need, call request_human (with their contact details if they gave any) and give the phone number ${BUSINESS.phone}.
+13. After a tool succeeds, confirm briefly that a team member will contact them during business hours (${BUSINESS.hours}) to confirm; do not promise a specific date, time or response time.
 
 HARD RULES
 A. Prices: never state, estimate, compare or imply any price, price range, per-window or per-square-foot cost, discount, financing or promotion terms, even roughly, even if the customer insists or names a number. Say that pricing depends on the exact products, sizes and options and is provided by our team after the free consultation and measurement (中文：具体价格需要根据产品、尺寸和配置，由顾问上门测量后提供报价). If the customer shares a budget, you may note it for the team, but never say whether it is enough.
@@ -45,7 +59,7 @@ ${KNOWLEDGE}`;
 const salesTools: Anthropic.Beta.BetaTool[] = [
   {
     name: 'check_service_area',
-    description: 'Check a US ZIP code the customer gave for a home project. Returns whether it is in our usual service area (preliminary) and what to tell the customer. Never use the result to refuse a customer.',
+    description: 'Check a US ZIP code the customer gave (asked for only after conversion intent, or volunteered). Returns whether it is in our usual service area (preliminary) and what to tell the customer. Never use the result to refuse a customer.',
     input_schema: { type: 'object', additionalProperties: false, properties: { zip: { type: 'string', description: '5-digit US ZIP code exactly as given' } }, required: ['zip'] },
     strict: false,
   },
@@ -220,7 +234,8 @@ export interface SalesDeps {
   now?: () => Date;
 }
 
-const INTENT_RE = /(price|pricing|cost|quote|estimate|how much|budget|book|appointment|consult|measure|visit|sample|schedule|多少钱|价格|报价|费用|预算|预约|上门|测量|量尺|样品|咨询|安排)/i;
+/** Conversion intent in the customer's latest message (price, visit/measurement, samples, installation, timing, booking, buying, "I'm interested"). */
+export const INTENT_RE = /(price|pricing|cost|quote|estimate|how much|budget|book|appointment|consult|measure|visit|sample|schedule|install|lead time|how long|when can|buy|purchase|order|interested|move forward|go with|多少钱|价格|报价|费用|预算|预约|上门|测量|量尺|样品|安装|交期|多久|什么时候|购买|下单|想买|感兴趣|就选|定了|安排)/i;
 
 /** Runs one sales turn. The customer-facing reply is returned; call `extractLead` afterwards (background) to update structured fields. */
 export async function salesTurn(history: ChatMessage[], conversationId: string, page: PageContext | undefined, deps: SalesDeps = {}): Promise<SalesResult> {
@@ -229,7 +244,7 @@ export async function salesTurn(history: ChatMessage[], conversationId: string, 
   const language = conversationLanguage(trimmed);
   const upsertOpts = (signals?: StageSignals) => ({ notify: deps.notify, now: deps.now, language, signals });
   // mutated inside the tool callback (an object, so TypeScript does not narrow it away)
-  const st: { lead: Lead | null; cta: Cta; handoff: boolean } = { lead: null, cta: null, handoff: false };
+  const st: { lead: Lead | null; cta: Cta; handoff: boolean; zipGiven: boolean } = { lead: null, cta: null, handoff: false, zipGiven: false };
 
   const out = await runToolLoop({
     system: SALES_SYSTEM,
@@ -239,7 +254,10 @@ export async function salesTurn(history: ChatMessage[], conversationId: string, 
     onTool: async (name, input) => {
       if (name === 'check_service_area') {
         const r = checkServiceArea(String(input.zip ?? ''));
-        if (r.zip && customerSaid(trimmed, r.zip, 'zip')) st.lead = await upsertConversationLead(conversationId, { zip: r.zip, page, transcript: trimmed }, upsertOpts());
+        if (r.zip && customerSaid(trimmed, r.zip, 'zip')) {
+          st.zipGiven = true;
+          st.lead = await upsertConversationLead(conversationId, { zip: r.zip, page, transcript: trimmed }, upsertOpts());
+        }
         return { content: r.content };
       }
       if (name === 'request_consultation' || name === 'request_human') {
@@ -293,7 +311,8 @@ export async function salesTurn(history: ChatMessage[], conversationId: string, 
   }
   if (!st.cta) {
     const existing = st.lead ?? (await getConversationLead(conversationId));
-    const intent = INTENT_RE.test(last?.content ?? '') || Boolean(existing && (existing.room_type || existing.primary_need || existing.zip));
+    // the booking button follows conversion intent (or a ZIP the customer just gave), not merely knowing the room or need
+    const intent = INTENT_RE.test(last?.content ?? '') || st.zipGiven;
     const alreadyBooked = existing && (existing.stage === 'consultation_requested' || existing.stage === 'handed_to_human');
     if (intent && !alreadyBooked) st.cta = 'consultation';
   }
