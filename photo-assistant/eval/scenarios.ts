@@ -30,6 +30,10 @@ export interface Scenario {
     noContactAskBefore?: number;
     /** Turns where the reply must not ask for name / phone / email (ZIP allowed). */
     noPersonalAskAt?: number[];
+    /** Turns where the reply must ask for the customer's name / phone / email (ZIP alone is not enough). */
+    askPersonalAt?: number[];
+    /** Turns where the reply must not volunteer S. MORI's own phone number or email. */
+    noOwnContactAt?: number[];
     /** Turn where the reply must ask for a ZIP or contact details. */
     askZipOrContactAt?: number;
     /** Turn where the reply must invite the customer to the consultation / visit. */
@@ -253,25 +257,37 @@ export const SCENARIOS: Scenario[] = [
 
   /* ---------------- 要求人工时转人工 ---------------- */
   {
-    id: 'human-no-contact', category: '转人工', title: '要真人但没留联系方式', lang: 'zh',
+    id: 'human-no-contact', category: '转人工', title: '要真人但没留联系方式：询问客户联系方式，不给店铺电话', lang: 'zh',
     turns: ['我想跟真人聊'],
     expect: {
       tools: [{ turn: 0, tool: 'request_human' }], cta: [{ turn: 0, cta: ['human_form', 'human_sent'] }],
-      mustMatch: [{ turn: 0, re: /949.?880.?1322/, label: '给出了店里电话' }],
+      askPersonalAt: [0], noOwnContactAt: [0],
     },
-    judge: ['立即配合转人工，给出电话，并邀请留下联系方式', J_TONE],
+    judge: ['配合转人工：说明可以让 SMORI 团队主动联系客户，并询问客户姓名和电话（或邮箱）', '没有主动给出 SMORI 的电话或邮箱来代替获取客户联系方式', J_TONE],
+  },
+  {
+    id: 'human-rep-en', category: '转人工', title: 'English: sales representative, no contact yet', lang: 'en',
+    turns: ['Can I speak with a sales representative?'],
+    expect: { tools: [{ turn: 0, tool: 'request_human' }], askPersonalAt: [0], noOwnContactAt: [0] },
+    judge: ["Offered to have the S. MORI team contact the customer and asked for their name and best phone number (or email)", 'Did not volunteer the S. MORI phone number or email instead of capturing the lead', J_TONE],
+  },
+  {
+    id: 'contact-us-asked', category: '转人工', title: '客户明确问店铺电话：可以给出', lang: 'zh',
+    turns: ['你们的电话是多少？'],
+    expect: { mustMatch: [{ turn: 0, re: /949\D{0,3}880\D{0,3}1322/, label: '客户问电话时给出了店铺电话' }] },
+    judge: ['客户明确询问时，直接给出了店铺电话', J_TONE],
   },
   {
     id: 'human-with-contact', category: '转人工', title: '要真人并留了电话', lang: 'zh', extract: true,
     turns: ['我想直接和顾问通电话，我是王先生，949-555-0100'],
-    expect: { tools: [{ turn: 0, tool: 'request_human' }], stage: 'handed_to_human', singleLead: true, freshSummary: true },
-    judge: ['确认会有顾问联系，没有承诺具体回复时间', J_TONE],
+    expect: { tools: [{ turn: 0, tool: 'request_human' }], stage: 'handed_to_human', singleLead: true, freshSummary: true, noPersonalAskAt: [0], noOwnContactAt: [0] },
+    judge: ['确认会有顾问联系，没有再次索要联系方式，没有承诺具体回复时间', J_TONE],
   },
   {
     id: 'human-en', category: '转人工', title: 'English: real person with email', lang: 'en', extract: true,
     turns: ["Can I talk to a real person? I'm Mike, mike@example.com"],
-    expect: { tools: [{ turn: 0, tool: 'request_human' }], stage: 'handed_to_human', singleLead: true, freshSummary: true },
-    judge: ['Confirmed a team member will follow up, without promising a specific response time', J_TONE],
+    expect: { tools: [{ turn: 0, tool: 'request_human' }], stage: 'handed_to_human', singleLead: true, freshSummary: true, noPersonalAskAt: [0], noOwnContactAt: [0] },
+    judge: ['Confirmed a team member will follow up without asking for contact details again or promising a specific response time', J_TONE],
   },
   {
     id: 'human-identity', category: '转人工', title: '问是不是真人', lang: 'zh',

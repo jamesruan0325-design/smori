@@ -404,3 +404,38 @@ test('location answers: only "within our service area", no claims of nearby / re
   assert.match(sales.SALES_SYSTEM, /我们在这周一带经常施工/);
   assert.match(sales.SALES_SYSTEM, /92618 在我们的服务范围内/);
 });
+
+test('talking to a person: ask for the customer\'s contact instead of giving ours; don\'t re-ask when we have it', async () => {
+  const p = sales.SALES_SYSTEM;
+  assert.match(p, /ask for their name and the best phone number to reach them/);
+  assert.match(p, /Do NOT give our phone number or email instead of asking/);
+  assert.match(p, /If they already gave a phone number or email: do not ask for it again/);
+  assert.match(p, /are given only when the customer asks for them/);
+  assert.doesNotMatch(p, /may always be given/, 'old "always give our phone" rule removed');
+  assert.doesNotMatch(p, /call request_human \(with their contact details if they gave any\) and give the phone number/);
+  // the rule that keeps contact requests late in normal conversations is unchanged
+  assert.match(p, /Knowing the room, window type or need is NOT a reason to ask for a ZIP code, phone or email/);
+
+  // no contact yet: the tool result tells the model to ask for name + phone, not to give our number
+  let s = scripted([{ tool: { name: 'request_human', input: { reason: 'wants a person' } } }, { text: '可以让我们的团队直接联系您，方便留下您的称呼和电话吗？' }]);
+  let r = await sales.salesTurn([{ role: 'user', content: '我想跟真人聊' }], 'conv-human-ask-01', undefined, { create: s.create, notify: async () => {} });
+  const noContactResult = s.calls[1].messages.at(-1).content[0];
+  assert.equal(noContactResult.is_error, true);
+  assert.match(noContactResult.content, /ask for their name and the best phone number/);
+  assert.match(noContactResult.content, /Do not give our phone number or email/);
+  assert.doesNotMatch(noContactResult.content, /949|BonnieX/i, 'our phone/email are not handed to the model to repeat');
+  assert.equal(r.cta, 'human_form');
+  assert.equal((await getConversationLead('conv-human-ask-01'))?.wants_human ?? null, null, 'nothing to save yet without info or contact');
+
+  // contact given: handed over; the confirmation does not suggest calling us or re-asking
+  const { pushes, notify } = recorder();
+  s = scripted([{ tool: { name: 'request_human', input: { name: '王先生', phone: '949-555-0100', reason: 'wants a person' } } }, { text: '好的，王先生，我们的顾问会在工作时间联系您。' }]);
+  r = await sales.salesTurn([{ role: 'user', content: '我想直接和顾问通电话，我是王先生，949-555-0100' }], 'conv-human-ask-02', undefined, { create: s.create, notify });
+  const okResult = s.calls[1].messages.at(-1).content[0];
+  assert.notEqual(okResult.is_error, true);
+  assert.match(okResult.content, /Do not ask for their contact details again/);
+  assert.doesNotMatch(okResult.content, /also call|949-?880/i);
+  assert.equal(r.cta, 'human_sent');
+  assert.equal((await getConversationLead('conv-human-ask-02'))!.stage, 'handed_to_human');
+  assert.equal(pushes.length, 1);
+});

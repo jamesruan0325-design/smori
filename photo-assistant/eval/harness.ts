@@ -10,7 +10,7 @@ import { extractLead, salesTurn, type Cta, type Extractor } from '../src/sales.j
 import { getConversationLead, hasContact, listLeads, type Lead } from '../src/leads.js';
 import { handleLead, salesDeps } from '../src/proxy.js';
 import type { Notifier } from '../src/notify.js';
-import { BOOKING_INVITE_RE, CONFIRM_CUE_RE, DURATION_RE, SPEC_NUMBER_RE, STALE_SUMMARY_RE, UPSELL_RE, claimsHuman, contactAsks, languageOk, locationClaims, priceViolations, productsIn, refusals, sentences } from './checks.js';
+import { BOOKING_INVITE_RE, CONFIRM_CUE_RE, DURATION_RE, OUR_CONTACT_RE, SPEC_NUMBER_RE, STALE_SUMMARY_RE, UPSELL_RE, claimsHuman, contactAsks, languageOk, locationClaims, priceViolations, productsIn, refusals, sentences } from './checks.js';
 import type { Scenario, ToolName } from './scenarios.js';
 import type { Judge, JudgeItem } from './judge.js';
 
@@ -101,6 +101,14 @@ export function applyChecks(sc: Scenario, turns: TurnRecord[], lead: LeadLike, l
     }
   }
   for (const i of e.noPersonalAskAt ?? []) if (at(i)) add('不追问姓名/电话/邮箱', !contactAsks(at(i).reply).contact, undefined, i);
+  for (const i of e.askPersonalAt ?? []) if (at(i)) {
+    const ok = contactAsks(at(i).reply).contact;
+    add('询问客户姓名/电话（或邮箱）', ok, ok ? undefined : clip(at(i).reply), i);
+  }
+  for (const i of e.noOwnContactAt ?? []) if (at(i)) {
+    const m = at(i).reply.match(OUR_CONTACT_RE);
+    add('不主动给出 SMORI 电话/邮箱', !m, m?.[0], i);
+  }
   if (e.askZipOrContactAt !== undefined && at(e.askZipOrContactAt)) {
     const a = contactAsks(at(e.askZipOrContactAt).reply);
     add('出现购买意向后询问邮编或联系方式', a.zip || a.contact, a.zip || a.contact ? undefined : clip(at(e.askZipOrContactAt).reply), e.askZipOrContactAt);

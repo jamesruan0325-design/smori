@@ -19,7 +19,9 @@ export function sentences(text: string): string[] {
   return text.split(/(?<=[。！？!?\n])|(?<=\.)\s+/).map((s) => s.trim()).filter(Boolean);
 }
 
-const PRICE_RE = /(\$\s?\d[\d,.]*k?|\d[\d,.]*\s?(美元|美金|元|块钱|块|刀|dollars?|usd)|\d+\s?%\s?(off|折扣|优惠)|\d(\.\d)?\s?折|几百|几千|上千|上万|hundreds of dollars|thousands of dollars|per (window|square (foot|feet)|sq\.?\s?ft))/gi;
+// A price needs an amount: "$300", "300 美元", "300 per window", "每扇 300". Words like "per window",
+// "each window" or a count ("2 块窗帘", "two shades per window") on their own are not prices.
+const PRICE_RE = /(\$\s?\d[\d,.]*k?|\d[\d,.]*\s?(美元|美金|元(?!素)|块钱|刀|dollars?|usd)|\d{2,}[\d,.]*\s?(per|each|a|\/)\s?(window|panel|shade|square|sq)|(每扇|每幅|每平方(英尺|米)?|per (window|panel|shade|square (foot|feet)|sq\.?\s?ft)|each (window|panel|shade))(\s?(大概|大约|约|在|是|around|about|roughly|is|are|runs|costs?|starts?|at|from)){0,3}\s?\$?\d{2,}|\d+\s?%\s?(off|折扣|优惠)|\d(\.\d)?\s?折|几百|几千|上千|上万|hundreds of dollars|thousands of dollars)/gi;
 
 /** Price amounts / ranges / per-unit costs in the reply that the customer did not say first. */
 export function priceViolations(reply: string, customerText: string): string[] {
@@ -52,7 +54,7 @@ export function refusals(reply: string): string[] {
 const ASK_CUE_RE = /([？?]|方便|麻烦|请(您)?(留|提供|告诉|填)|留(下|个|一个)|提供一下|告诉我|可以给|may i|could you|can you|would you|please (share|leave|provide|send)|what(?:'s| is) your)/i;
 const ZIP_RE = /(邮编|ZIP|zip code|postal code)/i;
 const CONTACT_RE = /(电话|手机号|联系方式|邮箱|e-?mail|phone|contact (info|details)|称呼|姓名|名字|your name|how (should|may) (we|i) (address|call) you)/i;
-const OWN_CONTACT_RE = /(949.?880.?1322|BonnieX@|致电|call us|打电话给我们|拨打)/i;
+const OWN_CONTACT_RE = /(949\D{0,3}880\D{0,3}1322|BonnieX@|致电|call us|打电话给我们|拨打)/i;
 
 /** What the reply asks the customer for: their ZIP code and/or contact details (name, phone, email). */
 export function contactAsks(reply: string): { zip: boolean; contact: boolean } {
@@ -85,4 +87,6 @@ export const BOOKING_INVITE_RE = /(预约|上门|免费.{0,4}咨询|咨询与测
 export const UPSELL_RE = /(PowerView|电动|motori[sz]|智能家居|smart[- ]home|Alustra)/i;
 export const SPEC_NUMBER_RE = /\d+(\.\d+)?\s?(英寸|寸|inch(es)?|in\.|cm|厘米|公分|mm|毫米|英尺|feet|foot|ft|米(?!色)|meters?|%|年|years?)/i;
 export const DURATION_RE = /\d+\s?(-|~|到|至)?\s?\d*\s?(天|周|星期|个月|days?|weeks?|months?|years?|年)/i;
+/** S. MORI's own public phone / email (should be given only when the customer asks for them). */
+export const OUR_CONTACT_RE = /(949\D{0,3}880\D{0,3}1322|bonniex@smoriwindowfashion\.com)/i;
 export const STALE_SUMMARY_RE = /(尚未|还未|还没|没有|未)(留|提供|给|填)/;

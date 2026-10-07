@@ -31,6 +31,21 @@ test('price check: amounts, ranges and per-unit costs fail; customer-stated numb
   assert.deepEqual(checks.priceViolations('您提到的 2000 美元预算我会记录给顾问。', '我预算 2000 美元够吗？'), [], 'repeating the customer budget is fine');
 });
 
+test('price check regression: "per window" / "each window" in plain language is not a quote (contact-not-early-en)', () => {
+  const q = 'Do these work for night-time privacy too?';
+  for (const t of [
+    'Yes, for night-time privacy you can choose a room-darkening fabric per window, or add a second layer.',
+    'You can mix opacities per window.',
+    'Most people pick two shades per window for layering.',
+    'Each window is measured by our team, and pricing is quoted per window after the visit.',
+    'Top-down/bottom-up can be set per window, so each window can be adjusted separately.',
+    '主卧 2 块窗帘都想换成遮光的',
+  ]) assert.deepEqual(checks.priceViolations(t, q), [], t);
+  for (const t of ['$120 per window', 'about 300 dollars each window', '300 per window installed', 'Pricing per window is around 250.', 'each panel starts at 180', '每扇大概 300', '每扇 300 美元', 'Roughly $45 per square foot.']) {
+    assert.ok(checks.priceViolations(t, q).length, `should be flagged: ${t}`);
+  }
+});
+
 test('location-activity claims: invented activity fails, "within service area" and negated sentences pass', () => {
   assert.deepEqual(checks.locationClaims(GOOD_ZIP), []);
   assert.deepEqual(checks.locationClaims(GOOD_BAIT), []);
@@ -52,6 +67,7 @@ test('contact asks: ZIP / personal details asked vs our own phone given', () => 
   assert.deepEqual(checks.contactAsks(GOOD_RECO), { zip: false, contact: false });
   assert.deepEqual(checks.contactAsks('方便告诉我您家的邮编吗？'), { zip: true, contact: false });
   assert.deepEqual(checks.contactAsks('您也可以直接致电 (949) 880-1322。'), { zip: false, contact: false });
+  assert.deepEqual(checks.contactAsks('我们的电话是 (949) 880-1322，有需要随时联系？'), { zip: false, contact: false }, 'giving our "(949) 880-1322" is not asking for theirs');
   assert.deepEqual(checks.contactAsks('May I have your name and a phone number or email?'), { zip: false, contact: true });
   assert.deepEqual(checks.contactAsks('What is your ZIP code?'), { zip: true, contact: false });
 });
@@ -79,7 +95,7 @@ test('scenario set: unique ids, valid turn indices, required categories present'
     assert.ok(s.turns.length && s.judge.length, s.id);
     const n = s.turns.length;
     const e = s.expect ?? {};
-    const idx = [e.askZipOrContactAt, e.bookingInviteAt, ...(e.tools ?? []).map((t) => t.turn), ...(e.cta ?? []).map((t) => t.turn), ...(e.maxProducts?.turns ?? []), e.minProducts?.turn, ...(e.noProductsAt ?? []), ...(e.noUpsellAt ?? []), ...(e.confirmCueAt ?? []), ...(e.noSpecNumbersAt ?? []), ...(e.noDurationsAt ?? []), ...(e.noPersonalAskAt ?? []), ...(e.mustMatch ?? []).map((m) => m.turn), s.form?.afterTurn].filter((x): x is number => x !== undefined);
+    const idx = [...(e.askPersonalAt ?? []), ...(e.noOwnContactAt ?? []), e.askZipOrContactAt, e.bookingInviteAt, ...(e.tools ?? []).map((t) => t.turn), ...(e.cta ?? []).map((t) => t.turn), ...(e.maxProducts?.turns ?? []), e.minProducts?.turn, ...(e.noProductsAt ?? []), ...(e.noUpsellAt ?? []), ...(e.confirmCueAt ?? []), ...(e.noSpecNumbersAt ?? []), ...(e.noDurationsAt ?? []), ...(e.noPersonalAskAt ?? []), ...(e.mustMatch ?? []).map((m) => m.turn), s.form?.afterTurn].filter((x): x is number => x !== undefined);
     for (const i of idx) assert.ok(i >= 0 && i < n, `${s.id}: turn index ${i} out of range`);
     if (s.langAt) assert.equal(s.langAt.length, n, s.id);
   }
@@ -142,4 +158,20 @@ test('report: hard failures decide the result; AI-judge results are listed but a
   const md = harness.renderReport([s], { runs: 2, judge: true, models: 'stub', usage: '—', startedAt: 'now', durationS: 1 });
   assert.match(md, /✅ 全部通过/);
   assert.match(md, /AI 评分未满分的项目（参考）/);
+});
+
+test('harness: human-no-contact requires asking for the customer\'s contact (A) and not giving ours instead (B)', async () => {
+  const sc = byId('human-no-contact');
+  const tool = { tool: { name: 'request_human', input: { reason: '客户想和真人沟通' } } };
+  const good = await harness.runScenario(sc, 1, { create: scripted([tool, { text: '没问题，我可以请 SMORI 的团队直接联系您。方便留下您的称呼和联系电话吗？' }]) });
+  assert.equal(good.hardPass, true, JSON.stringify(good.checks.filter((c) => !c.pass)));
+
+  const givesOurs = await harness.runScenario(sc, 2, { create: scripted([tool, { text: '您可以直接致电 (949) 880-1322 或发邮件至 BonnieX@smoriwindowfashion.com，也可以留下您的称呼和电话，我们联系您。' }]) });
+  assert.deepEqual(givesOurs.checks.filter((c) => !c.pass).map((c) => c.rule), ['不主动给出 SMORI 电话/邮箱']);
+
+  const noAsk = await harness.runScenario(sc, 3, { create: scripted([tool, { text: '好的，我已经通知团队，他们会尽快跟进。' }]) });
+  assert.deepEqual(noAsk.checks.filter((c) => !c.pass).map((c) => c.rule), ['询问客户姓名/电话（或邮箱）']);
+
+  const asked = await harness.runScenario(byId('contact-us-asked'), 1, { create: scripted([{ text: '我们的电话是 (949) 880-1322，工作时间 Mon–Fri 9AM–5PM。' }]) });
+  assert.equal(asked.hardPass, true, 'giving our number when the customer asks for it is fine');
 });
