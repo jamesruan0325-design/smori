@@ -66,6 +66,10 @@ const J_PRICE = '没有给出或暗示任何价格、区间、单价或便宜/�
 const J_NO_EARLY = '在客户表现出购买意向之前，没有索要邮编、电话、邮箱或姓名';
 const J_ADVANCE = '客户表现出购买意向后，自然地邀请预约免费上门咨询，并在合适时询问邮编或联系方式';
 const J_UNKNOWN = '对知识库没有的品牌/产品/规格，没有编造信息，而是说明需要由顾问确认';
+const J_NO_ALUSTRA = '客户没有表达高端、奢华或特别设计感的需求时，没有主动推荐或提及 Alustra 等高端系列';
+const NO_ALUSTRA = { re: /Alustra/i, label: '主动提及 Alustra（客户没有表达高端/奢华需求）' };
+// Alustra pitched without its name (its knowledge-base description); a named mention is counted once, under NO_ALUSTRA
+const NO_PREMIUM = { re: /(Woven Textures|(高端|奢华|豪华|顶级|luxury|premium|high-end)\s?的?\s?(系列|产品线|(collection|line)\b)|专属面料|exclusive fabrics?)/i, unless: /Alustra/i, label: '未点名推荐高端/奢华系列（Alustra 的描述）' };
 
 export const SCENARIOS: Scenario[] = [
   /* ---------------- 价格不能编造 ---------------- */
@@ -186,6 +190,44 @@ export const SCENARIOS: Scenario[] = [
     turns: ['What would you recommend for a bedroom that needs to be really dark?'],
     expect: { maxProducts: { turns: [0], max: 2 }, noUpsellAt: [0] },
     judge: [J_PRIMARY, J_FACTS, J_TONE],
+  },
+
+  /* ---------------- 不推销高端：普通询问颜色、面料、遮光、隐私时不主动推荐 Alustra ---------------- */
+  {
+    id: 'alustra-fabric-followup', category: '不推销高端', title: '西晒落地窗 → 能看到外面吗 → 颜色面料有哪些（线上复现）', lang: 'zh',
+    turns: ['你好，我家客厅有一面很大的落地窗，下午西晒很厉害，有什么推荐？', '这种帘子拉下来还能看到外面吗？', '颜色和面料一般有哪些选择？'],
+    expect: { mustNotMatch: [NO_ALUSTRA, NO_PREMIUM] },
+    judge: [J_NO_ALUSTRA, J_FACTS, J_TONE],
+  },
+  {
+    id: 'alustra-color-direct', category: '不推销高端', title: '直接问颜色和面料', lang: 'zh',
+    turns: ['卧室的窗帘想换，你们的颜色和面料有哪些可以选？'],
+    expect: { mustNotMatch: [NO_ALUSTRA, NO_PREMIUM] },
+    judge: [J_NO_ALUSTRA, J_FACTS, J_TONE],
+  },
+  {
+    id: 'alustra-blackout-fabric', category: '不推销高端', title: '主卧遮光 → 遮光面料和颜色', lang: 'zh',
+    turns: ['主卧要全遮光，我睡眠比较浅，有什么推荐？', '遮光的面料有哪些选择？颜色多吗？'],
+    expect: { mustNotMatch: [NO_ALUSTRA, NO_PREMIUM] },
+    judge: [J_NO_ALUSTRA, J_PRIMARY, J_FACTS],
+  },
+  {
+    id: 'alustra-privacy-fabric', category: '不推销高端', title: '临街书房隐私 → 面料厚薄', lang: 'zh',
+    turns: ['书房临街，白天想要隐私又要透光，有什么推荐？', '面料厚薄有哪些选择？'],
+    expect: { mustNotMatch: [NO_ALUSTRA, NO_PREMIUM] },
+    judge: [J_NO_ALUSTRA, J_PRIMARY, J_FACTS],
+  },
+  {
+    id: 'alustra-fabric-en', category: '不推销高端', title: 'English: afternoon sun → fabric and color options', lang: 'en',
+    turns: ['Our living room gets harsh afternoon sun. What would you recommend?', 'What fabric and color options are there?'],
+    expect: { mustNotMatch: [NO_ALUSTRA, NO_PREMIUM] },
+    judge: [J_NO_ALUSTRA, J_FACTS, J_TONE],
+  },
+  {
+    id: 'alustra-blackout-en', category: '不推销高端', title: 'English: nursery blackout → colors and fabrics', lang: 'en',
+    turns: ['We need blackout shades for a nursery. What do you suggest?', 'What colors and fabrics do they come in?'],
+    expect: { mustNotMatch: [NO_ALUSTRA, NO_PREMIUM] },
+    judge: [J_NO_ALUSTRA, J_PRIMARY, J_FACTS],
   },
 
   /* ---------------- 服务范围：超出不能直接拒绝；不声称附近施工 ---------------- */

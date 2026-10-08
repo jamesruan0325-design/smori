@@ -89,7 +89,7 @@ test('scenario set: unique ids, valid turn indices, required categories present'
   const ids = SCENARIOS.map((s) => s.id);
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(SCENARIOS.length >= 30);
-  for (const c of ['价格', '服务范围', '未知信息', '联系方式时机', '推进预约', '转人工', '语言', '推荐', '线索']) assert.ok(SCENARIOS.some((s) => s.category === c), c);
+  for (const c of ['价格', '服务范围', '未知信息', '联系方式时机', '推进预约', '转人工', '语言', '推荐', '不推销高端', '线索']) assert.ok(SCENARIOS.some((s) => s.category === c), c);
   assert.ok(SCENARIOS.some((s) => s.lang === 'en') && SCENARIOS.some((s) => s.lang === 'zh'));
   for (const s of SCENARIOS) {
     assert.ok(s.turns.length && s.judge.length, s.id);
@@ -198,4 +198,25 @@ test('contact matcher regression: phone/email named as a channel is not a reques
   const extract = async () => ({ name: '王先生', phone: '949-555-0100', email: null, zip: null, room_type: null, window_count: null, approximate_size: null, primary_need: null, motorization_interest: null, budget_range: null, products_recommended: [], consultation_interest: 'unknown' as const, wants_human: true, summary: '客户要求与顾问电话沟通。' });
   const run = await harness.runScenario(byId('human-with-contact'), 1, { extract, create: scripted([{ tool: { name: 'request_human', input: { name: '王先生', phone: '949-555-0100', reason: '想和顾问通电话' } } }, { text: reply }]) });
   assert.equal(run.hardPass, true, JSON.stringify(run.checks.filter((c) => !c.pass)));
+});
+
+test('harness: an unprompted Alustra mention fails the 不推销高端 check (live smoke-test reply)', async () => {
+  const sc = byId('alustra-fabric-followup');
+  const t1 = '像这样很宽的落地窗，Luminette 会很合适：竖向的布艺叶片可以旋转，随太阳角度调节进光量。\n\n请问这面窗是推拉门吗？';
+  const t2 = '可以的。Luminette 是纱质结构，叶片打开时白天仍然能看到外面。\n\n您这面落地窗大概多宽？';
+  // the exact turn-3 reply from the 2026-10-08 production smoke test (pre-zh#1)
+  const t3 = 'Luminette 和 Silhouette 都有多种面料和颜色可选，从偏透的纱质到更密实的织纹都有，深浅色调也比较齐全。如果想要更特别的质感和五金细节，Alustra 系列提供专属面料和设计细节。\n\n具体的颜色与面料，一般是在项目开始时由顾问带实物样品，结合您客厅的采光和装修风格一起确定。\n\n请问您客厅的整体风格偏现代还是偏传统？';
+  const bad = await harness.runScenario(sc, 1, { create: scripted([{ text: t1 }, { text: t2 }, { text: t3 }]) });
+  assert.deepEqual(bad.checks.filter((c) => !c.pass).map((c) => [c.rule, c.turn]), [['不应出现：主动提及 Alustra（客户没有表达高端/奢华需求）', 2]]);
+  const unnamed = await harness.runScenario(sc, 3, { create: scripted([{ text: t1 }, { text: t2 }, { text: t3.replace('Alustra 系列', '我们的奢华系列') }]) });
+  assert.deepEqual(unnamed.checks.filter((c) => !c.pass).map((c) => [c.rule, c.turn]), [['不应出现：未点名推荐高端/奢华系列（Alustra 的描述）', 2]]);
+  const en = await harness.runScenario(byId('alustra-fabric-en'), 1, { create: scripted([{ text: 'Silhouette would suit that room well.' }, { text: 'Silhouette comes in many colors. Our luxury collection also offers exclusive fabrics.' }]) });
+  assert.deepEqual(en.checks.filter((c) => !c.pass).map((c) => [c.rule, c.turn]), [['不应出现：未点名推荐高端/奢华系列（Alustra 的描述）', 1]]);
+  const clean = t3.replace('如果想要更特别的质感和五金细节，Alustra 系列提供专属面料和设计细节。', '') + '我们是一家高端定制窗饰工作室。';
+  const good = await harness.runScenario(sc, 2, { create: scripted([{ text: t1 }, { text: t2 }, { text: clean }]) });
+  assert.equal(good.hardPass, true, JSON.stringify(good.checks.filter((c) => !c.pass)));
+  for (const s of SCENARIOS.filter((x) => x.category === '不推销高端')) {
+    assert.ok(s.expect?.mustNotMatch?.some((m) => m.re.test('Alustra')) && s.expect.mustNotMatch.some((m) => m.re.test('奢华系列')), s.id);
+    assert.ok(!s.turns.some((t) => /alustra|高端|奢华|luxury|premium|high-end|设计感|质感|texture/i.test(t)), `${s.id}: customer must not ask for premium`);
+  }
 });
