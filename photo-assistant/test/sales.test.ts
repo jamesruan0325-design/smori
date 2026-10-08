@@ -468,11 +468,16 @@ test('no early booking: before customer intent, no consultation/visit/sample inv
   assert.match(p, /or clearly says they are interested in the recommended option or want to move forward\. Only then:\n {3}- invite them to the complimentary in-home consultation and measurement and, naturally, ask for their ZIP code/);
 });
 
-test('no premium add-ons: general colour / fabric / style / opacity questions get regular choices only (rule 7)', () => {
+test('no premium add-ons: general colour / fabric / style / opacity questions get FACTS-only answers (rule 7)', async () => {
   const p = sales.SALES_SYSTEM;
   assert.match(p, /Do not suggest motorization or extra layers unless they serve a need the customer expressed\./);
   assert.match(p, /Mention Alustra or any other premium\/luxury collection, upgrade line or higher-end product \(as a recommendation, alternative or aside\) only when the customer explicitly asks for something high-end or luxury, special or exclusive fabrics, a design-forward look or special finishes, or asks about such a collection or to see all our product lines \(rule 6\)\./);
-  assert.match(p, /A general question about colors, fabrics, styles, opacity\/blackout or privacy options is not such a request: answer it with only the regular choices directly relevant to their current need or the product\(s\) already discussed, without adding or hinting at a premium collection\. If a simpler option fits, say so\./);
+  assert.match(p, /A general question about colors, fabrics, styles, opacity\/blackout or privacy options is not such a request: answer it only with what the FACTS say about the product\(s\) already discussed or that fit their current need \(for example their opacity levels, fabric options or styles\), without adding or hinting at a premium collection\./);
+  // no invented colours / textures / fabrics: the exact range is confirmed with samples (a statement, not an invitation)
+  assert.match(p, /The FACTS name no colors: do not describe colors, textures or fabrics beyond what the FACTS say \(rule C\); say instead that the exact colors and fabrics are confirmed with samples by our team \(a statement, not an invitation; rule 8\)\. If a simpler option fits, say so\./);
+  // and the FACTS really name no colours
+  const { KNOWLEDGE } = await import('../src/knowledge.js');
+  assert.doesNotMatch(KNOWLEDGE, /\b(white(?!-glove)|ivory|beige|gr[ae]y|black|navy|cream|taupe|neutral)\b|颜色|色系/i);
   // the recommendation rules around it are unchanged
   assert.match(p, /3\. Give ONE primary recommendation: the option from the MATCHING NEEDS TO SOLUTIONS facts/);
   assert.match(p, /4\. Add at most ONE alternative, and only when it serves a different preference/);
