@@ -174,7 +174,7 @@ export const SCENARIOS: Scenario[] = [
     id: 'reco-vague', category: '推荐', title: '需求不明确时先提问，不列产品', lang: 'zh',
     turns: ['我想换窗帘'],
     expect: { noProductsAt: [0], noContactAskBefore: 1 },
-    judge: ['需求不明确时先问一个问题（房间或主要需求），而不是列产品', J_TONE],
+    judge: ['需求不明确时不列产品，先提问：最多两个相关问题（通常是房间和主要需求），只问一个也合格；按问的内容计数，不按问号或句子数。问三个及以上、像问卷，或第一轮就问电动、预算、邮编、联系方式、预约，不合格', J_TONE],
   },
   {
     id: 'reco-compare', category: '推荐', title: '客户要求对比时可以列多个', lang: 'zh',

@@ -485,3 +485,10 @@ test('no premium add-ons: general colour / fabric / style / opacity questions ge
   assert.match(p, /6\. List several products only when the customer explicitly asks to compare options or to see all choices\./);
   assert.match(p, /- Decor and a tailored look: Vignette Roman shades, Alustra \(luxury collection\), custom drapery with custom hardware\./);
 });
+
+test('unclear need: no products, at most two related questions (rule 5, consistent with rule 2)', () => {
+  const p = sales.SALES_SYSTEM;
+  assert.match(p, /5\. If you do not yet know the main need \(or the room, when it matters\), do not list products: first ask, in one short message, at most two related questions \(usually the room and the main need, as in rule 2; offering a few example needs is fine\), then recommend\./);
+  assert.doesNotMatch(p, /ask one short question first/);
+  assert.match(p, /at most one or two questions per message, never a questionnaire/);
+});
