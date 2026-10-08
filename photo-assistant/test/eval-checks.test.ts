@@ -209,12 +209,23 @@ test('harness: an unprompted Alustra mention fails the 不推销高端 check (li
   const bad = await harness.runScenario(sc, 1, { create: scripted([{ text: t1 }, { text: t2 }, { text: t3 }]) });
   assert.deepEqual(bad.checks.filter((c) => !c.pass).map((c) => [c.rule, c.turn]), [['不应出现：主动提及 Alustra（客户没有表达高端/奢华需求）', 2]]);
   const unnamed = await harness.runScenario(sc, 3, { create: scripted([{ text: t1 }, { text: t2 }, { text: t3.replace('Alustra 系列', '我们的奢华系列') }]) });
-  assert.deepEqual(unnamed.checks.filter((c) => !c.pass).map((c) => [c.rule, c.turn]), [['不应出现：未点名推荐高端/奢华系列（Alustra 的描述）', 2]]);
+  assert.deepEqual(unnamed.checks.filter((c) => !c.pass).map((c) => [c.rule, c.turn]), [['不应出现：未点名推荐高端/升级系列或产品', 2]]);
   const en = await harness.runScenario(byId('alustra-fabric-en'), 1, { create: scripted([{ text: 'Silhouette would suit that room well.' }, { text: 'Silhouette comes in many colors. Our luxury collection also offers exclusive fabrics.' }]) });
-  assert.deepEqual(en.checks.filter((c) => !c.pass).map((c) => [c.rule, c.turn]), [['不应出现：未点名推荐高端/奢华系列（Alustra 的描述）', 1]]);
+  assert.deepEqual(en.checks.filter((c) => !c.pass).map((c) => [c.rule, c.turn]), [['不应出现：未点名推荐高端/升级系列或产品', 1]]);
+  for (const t of ['卧室的颜色选择很多，也有更高端的面料可以选。', 'Woven Textures 系列的质感也很有特色。', '颜色选择很多，还有升级款的五金。']) {
+    const r = await harness.runScenario(byId('alustra-color-direct'), 9, { create: scripted([{ text: t }]) });
+    assert.deepEqual(r.checks.filter((c) => !c.pass).map((c) => c.rule), ['不应出现：未点名推荐高端/升级系列或产品'], t);
+  }
+  const enPremium = await harness.runScenario(byId('alustra-fabric-en'), 9, { create: scripted([{ text: 'Silhouette would suit that room well.' }, { text: 'There is also a premium line with richer fabrics.' }]) });
+  assert.deepEqual(enPremium.checks.filter((c) => !c.pass).map((c) => [c.rule, c.turn]), [['不应出现：未点名推荐高端/升级系列或产品', 1]]);
   const clean = t3.replace('如果想要更特别的质感和五金细节，Alustra 系列提供专属面料和设计细节。', '') + '我们是一家高端定制窗饰工作室。';
   const good = await harness.runScenario(sc, 2, { create: scripted([{ text: t1 }, { text: t2 }, { text: clean }]) });
   assert.equal(good.hardPass, true, JSON.stringify(good.checks.filter((c) => !c.pass)));
+  // positive controls: an explicit high-end ask must get the premium collection
+  const lux = await harness.runScenario(byId('reco-luxury-followup'), 1, { create: scripted([{ text: GOOD_RECO }, { text: '如果想要更高端的面料，Alustra 系列提供专属面料和五金饰面，可以和 Duette 一起比较。' }]) });
+  assert.equal(lux.hardPass, true, JSON.stringify(lux.checks.filter((c) => !c.pass)));
+  const noLux = await harness.runScenario(byId('reco-luxury-zh'), 1, { create: scripted([{ text: '客厅想更有档次的话，Vignette 罗马帘很合适。' }]) });
+  assert.deepEqual(noLux.checks.filter((c) => !c.pass).map((c) => c.rule), ['客户明确要高端时推荐 Alustra']);
   for (const s of SCENARIOS.filter((x) => x.category === '不推销高端')) {
     assert.ok(s.expect?.mustNotMatch?.some((m) => m.re.test('Alustra')) && s.expect.mustNotMatch.some((m) => m.re.test('奢华系列')), s.id);
     assert.ok(!s.turns.some((t) => /alustra|高端|奢华|luxury|premium|high-end|设计感|质感|texture/i.test(t)), `${s.id}: customer must not ask for premium`);

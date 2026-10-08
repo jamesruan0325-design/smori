@@ -68,8 +68,11 @@ const J_ADVANCE = '客户表现出购买意向后，自然地邀请预约免费�
 const J_UNKNOWN = '对知识库没有的品牌/产品/规格，没有编造信息，而是说明需要由顾问确认';
 const J_NO_ALUSTRA = '客户没有表达高端、奢华或特别设计感的需求时，没有主动推荐或提及 Alustra 等高端系列';
 const NO_ALUSTRA = { re: /Alustra/i, label: '主动提及 Alustra（客户没有表达高端/奢华需求）' };
-// Alustra pitched without its name (its knowledge-base description); a named mention is counted once, under NO_ALUSTRA
-const NO_PREMIUM = { re: /(Woven Textures|(高端|奢华|豪华|顶级|luxury|premium|high-end)\s?的?\s?(系列|产品线|(collection|line)\b)|专属面料|exclusive fabrics?)/i, unless: /Alustra/i, label: '未点名推荐高端/奢华系列（Alustra 的描述）' };
+// Alustra pitched without its name (its knowledge-base description), or any other premium / upgrade line or higher-end product;
+// a named Alustra mention is counted once, under NO_ALUSTRA
+const NO_PREMIUM = { re: /(Woven Textures|(更?高端|奢华|豪华|顶级|高档|luxury|premium|high-end|upscale)\s?的?\s?(系列|产品线|产品|面料|款式?|选择|(collections?|lines?|products?|fabrics?|options?|versions?)\b)|升级(款|版|系列)|专属面料|exclusive fabrics?|upgraded? (line|collection|version|option)s?\b)/i, unless: /Alustra/i, label: '未点名推荐高端/升级系列或产品' };
+const J_LUXURY = '客户明确表达高端、奢华或独家面料等需求时，推荐了知识库中的高端系列（如 Alustra），并说明为什么适合';
+const ASKS_ALUSTRA = { re: /Alustra/i, label: '客户明确要高端时推荐 Alustra' };
 
 export const SCENARIOS: Scenario[] = [
   /* ---------------- 价格不能编造 ---------------- */
@@ -190,6 +193,26 @@ export const SCENARIOS: Scenario[] = [
     turns: ['What would you recommend for a bedroom that needs to be really dark?'],
     expect: { maxProducts: { turns: [0], max: 2 }, noUpsellAt: [0] },
     judge: [J_PRIMARY, J_FACTS, J_TONE],
+  },
+
+  // positive controls: once the customer asks for it, the premium collection is recommended
+  {
+    id: 'reco-luxury-zh', category: '推荐', title: '客户明确要高端、独家面料 → 推荐 Alustra', lang: 'zh',
+    turns: ['客厅想做得更有档次，有没有高端、奢华一点的系列？最好是独家面料和特别的五金饰面。'],
+    expect: { mustMatch: [{ turn: 0, ...ASKS_ALUSTRA }] },
+    judge: [J_LUXURY, J_FACTS, J_TONE],
+  },
+  {
+    id: 'reco-luxury-en', category: '推荐', title: 'English: explicit high-end ask → Alustra', lang: 'en',
+    turns: ['For our living room we want something truly high-end, with exclusive fabrics and special hardware finishes. What would you suggest?'],
+    expect: { mustMatch: [{ turn: 0, ...ASKS_ALUSTRA }] },
+    judge: [J_LUXURY, J_FACTS, J_TONE],
+  },
+  {
+    id: 'reco-luxury-followup', category: '推荐', title: '先普通推荐（不提 Alustra），客户再要更高端 → 推荐 Alustra', lang: 'zh',
+    turns: ['主卧要遮光，有什么推荐？', '有没有更高端一点的系列？面料想要特别一些的。'],
+    expect: { mustNotMatch: [{ turn: 0, ...NO_ALUSTRA }], mustMatch: [{ turn: 1, ...ASKS_ALUSTRA }] },
+    judge: [J_LUXURY, J_PRIMARY, J_FACTS],
   },
 
   /* ---------------- 不推销高端：普通询问颜色、面料、遮光、隐私时不主动推荐 Alustra ---------------- */
