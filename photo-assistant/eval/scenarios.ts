@@ -215,6 +215,13 @@ export const SCENARIOS: Scenario[] = [
     judge: [J_LUXURY, J_PRIMARY, J_FACTS],
   },
 
+  {
+    id: 'reco-luxury-asks-alustra', category: '推荐', title: '客户主动问 Alustra → 正常介绍，追问颜色面料也照常回答', lang: 'zh',
+    turns: ['我们想做得高端一点，Alustra 系列适合客厅吗？', 'Alustra 的颜色和面料有哪些选择？'],
+    expect: { mustMatch: [{ turn: 0, ...ASKS_ALUSTRA }, { turn: 1, re: /Alustra|这个系列|该系列/i, label: '客户问到 Alustra 时照常介绍' }] },
+    judge: [J_LUXURY, J_FACTS, J_TONE],
+  },
+
   /* ---------------- 不推销高端：普通询问颜色、面料、遮光、隐私时不主动推荐 Alustra ---------------- */
   {
     id: 'alustra-fabric-followup', category: '不推销高端', title: '西晒落地窗 → 能看到外面吗 → 颜色面料有哪些（线上复现）', lang: 'zh',
