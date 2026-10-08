@@ -467,3 +467,15 @@ test('no early booking: before customer intent, no consultation/visit/sample inv
   // what happens once intent is real is unchanged
   assert.match(p, /or clearly says they are interested in the recommended option or want to move forward\. Only then:\n {3}- invite them to the complimentary in-home consultation and measurement and, naturally, ask for their ZIP code/);
 });
+
+test('no premium add-ons: general colour / fabric / style / opacity questions get regular choices only (rule 7)', () => {
+  const p = sales.SALES_SYSTEM;
+  assert.match(p, /Do not suggest motorization or extra layers unless they serve a need the customer expressed\./);
+  assert.match(p, /Mention Alustra or any other premium\/luxury collection, upgrade line or higher-end product \(as a recommendation, alternative or aside\) only when the customer explicitly asks for something high-end or luxury, special or exclusive fabrics, a design-forward look or special finishes, or asks about such a collection or to see all our product lines \(rule 6\)\./);
+  assert.match(p, /A general question about colors, fabrics, styles, opacity\/blackout or privacy options is not such a request: answer it with only the regular choices directly relevant to their current need or the product\(s\) already discussed, without adding or hinting at a premium collection\. If a simpler option fits, say so\./);
+  // the recommendation rules around it are unchanged
+  assert.match(p, /3\. Give ONE primary recommendation: the option from the MATCHING NEEDS TO SOLUTIONS facts/);
+  assert.match(p, /4\. Add at most ONE alternative, and only when it serves a different preference/);
+  assert.match(p, /6\. List several products only when the customer explicitly asks to compare options or to see all choices\./);
+  assert.match(p, /- Decor and a tailored look: Vignette Roman shades, Alustra \(luxury collection\), custom drapery with custom hardware\./);
+});
