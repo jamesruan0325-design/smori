@@ -20,8 +20,9 @@ export function sentences(text: string): string[] {
 }
 
 // A price needs an amount: "$300", "300 美元", "300 per window", "每扇 300". Words like "per window",
-// "each window" or a count ("2 块窗帘", "two shades per window") on their own are not prices.
-const PRICE_RE = /(\$\s?\d[\d,.]*k?|\d[\d,.]*\s?(美元|美金|元(?!素)|块钱|刀|dollars?|usd)|\d{2,}[\d,.]*\s?(per|each|a|\/)\s?(window|panel|shade|square|sq)|(每扇|每幅|每平方(英尺|米)?|per (window|panel|shade|square (foot|feet)|sq\.?\s?ft)|each (window|panel|shade))(\s?(大概|大约|约|在|是|around|about|roughly|is|are|runs|costs?|starts?|at|from)){0,3}\s?\$?\d{2,}|\d+\s?%\s?(off|折扣|优惠)|\d(\.\d)?\s?折|几百|几千|上千|上万|hundreds of dollars|thousands of dollars)/gi;
+// "each window" or a count ("2 块窗帘", "two shades per window") on their own are not prices. 几百/几千/上千/上万 are
+// money unless a count word follows ("几百种面料", "上千种颜色", "几千多种颜色" are options, not prices).
+const PRICE_RE = /(\$\s?\d[\d,.]*k?|\d[\d,.]*\s?(美元|美金|元(?!素)|块钱|刀|dollars?|usd)|\d{2,}[\d,.]*\s?(per|each|a|\/)\s?(window|panel|shade|square|sq)|(每扇|每幅|每平方(英尺|米)?|per (window|panel|shade|square (foot|feet)|sq\.?\s?ft)|each (window|panel|shade))(\s?(大概|大约|约|在|是|around|about|roughly|is|are|runs|costs?|starts?|at|from)){0,3}\s?\$?\d{2,}|\d+\s?%\s?(off|折扣|优惠)|\d(\.\d)?\s?折|(几百|几千|上千|上万)(?![多余]?\s?(种|款|样|色|个|件|条|扇|幅|家|户|位|次|名|项|块(面料|布|样)))|hundreds of dollars|thousands of dollars)/gi;
 
 /** Price amounts / ranges / per-unit costs in the reply that the customer did not say first. */
 export function priceViolations(reply: string, customerText: string): string[] {
@@ -43,12 +44,23 @@ export function locationClaims(reply: string): string[] {
   return sentences(reply).filter((s) => LOCATION_CLAIM_RE.test(s) && !NEGATION_RE.test(s));
 }
 
-const REFUSAL_RE = /(不服务|无法服务|不提供.{0,6}服务|不在.{0,8}服务(范围|区域)|超出.{0,8}服务(范围|区域)|服务不到|outside (of )?our service area|do(?:n't| not) (serve|cover|service)|not (in|within) our service area|can(?:'t|not) serve)/i;
+// English "don't serve / cover / service / travel to …" counts only when a PLACE follows: an area word or ZIP
+// ("do not cover that area", "don't serve 90210", "not able to serve customers in 85001", "can't serve you there") or a
+// capitalised place name ("don't service Beverly Hills", "don't cover the Inland Empire"; our own product / brand names
+// excluded). "sheers alone do not cover that", "the warranty doesn't cover pet damage", "we don't service motors from
+// other brands" are not location refusals.
+const EN_NOT = String.raw`(?:do(?:es)?(?:n['’]t| not)|can(?:['’]t|not)|won['’]t|will not|(?:['’]re|are|is)(?:n['’]t| not) able to|unable to)`;
+const EN_SERVE = String.raw`(?:serve|cover|service|come (?:out )?to|travel to|install in|work in)`;
+const EN_PLACE = String.raw`(?:(?:your|that|this|the) (?:area|zip(?: code)?|region|neighbou?rhood|city|location|address|part of town)|zip(?: code)?\s*\d{5}|\d{5}\b|(?:customers|clients|homes|anyone|people) in\b|you (?:there|in)\b|there\b|that far\b)`;
+const REFUSAL_RE = new RegExp(String.raw`(不服务|无法服务|不提供.{0,6}服务|不在.{0,8}服务(范围|区域)|超出.{0,8}服务(范围|区域)|服务不到|outside (?:of )?(?:our service area|the areas? we serve)|beyond (?:our service area|the areas? we serve)|not (?:in|within) our service area|${EN_NOT}\s+(?:currently\s+)?${EN_SERVE}\s+${EN_PLACE})`, 'i');
+const OWN_NAMES = [...PRODUCTS.map((p) => p.name.split(' ')[0]), 'Hunter', 'PowerView', 'Somfy', 'Alexa', 'Google', 'Apple', 'HomeKit', 'ALTA', 'S'].join('|');
+// case-sensitive on purpose: the capital letter is what marks a place name
+const EN_REFUSAL_NAME_RE = new RegExp(String.raw`${EN_NOT}\s+(?:currently\s+)?${EN_SERVE}\s+(?:the\s+)?(?!(?:${OWN_NAMES})\b)[A-Z][a-z]+`);
 const CONFIRM_RE = /(确认|核实|confirm|check)/i;
 
 /** Sentences that turn a customer away because of location, without saying the team will confirm. */
 export function refusals(reply: string): string[] {
-  return sentences(reply).filter((s) => REFUSAL_RE.test(s) && !CONFIRM_RE.test(s));
+  return sentences(reply).filter((s) => (REFUSAL_RE.test(s) || EN_REFUSAL_NAME_RE.test(s)) && !CONFIRM_RE.test(s));
 }
 
 const ASK_CUE_RE = /([？?]|方便|麻烦|请(您)?(留|提供|告诉|填)|留(下|个|一个)|提供一下|告诉我|可以给|may i|could you|can you|would you|please (share|leave|provide|send)|what(?:'s| is) your)/i;

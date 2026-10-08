@@ -62,6 +62,37 @@ test('refusal check: "not served" fails unless the team will confirm', () => {
   assert.ok(checks.refusals("Sorry, we don't serve 90210.").length);
 });
 
+test('refusal check regression: "do not cover / don\'t service" about privacy, warranty or products is not a location refusal', () => {
+  // the exact sentence wrongly failed in the 2026-10-08 full run (contact-not-early-en, run 1)
+  for (const t of [
+    'If you also want privacy in the evening with the lights on, we would plan a second layer, since sheers alone do not cover that.',
+    "Sheers alone don't cover night-time privacy.",
+    "A single shade can't cover that whole opening.",
+    "We don't offer DIY installation.",
+    "We don't service motors from other brands, but we can replace them with our own quiet motor system.",
+    'The warranty does not cover Hunter Douglas motors installed by others.',
+    'Our warranty doesn’t cover pet damage.',
+    "A sheer can't serve as a blackout layer.",
+  ]) assert.deepEqual(checks.refusals(t), [], t);
+  for (const t of [
+    "Sorry, we don't serve 90210.", 'Unfortunately we do not cover that area.', "Sorry, we don't service Beverly Hills.", 'We currently do not serve your area.',
+    "We can't serve your ZIP code.", '90210 is outside our service area.', 'Sorry, Las Vegas is beyond the area we serve.', "Our team doesn't cover that part of town.",
+    'S. MORI does not travel to San Diego.', 'Our installers do not come out to 92101.', "We unfortunately don't cover the Inland Empire.", 'We don’t serve Pasadena.',
+    "Sorry, we can't serve you there.", "I'm sorry, we're not able to serve customers in 85001.",
+    '抱歉，90012 不在我们的服务范围内。', '我们不服务这个地区。', '那边我们服务不到。', '您所在的 92277 超出了我们的服务区域。',
+  ]) assert.ok(checks.refusals(t).length, `should be flagged: ${t}`);
+});
+
+test('price check regression: 几百/几千/上千 followed by a count word is an option count, not a price', () => {
+  // the "几百种面料" replies wrongly failed in the 2026-10-08 baseline run (alustra-color-direct run 3, alustra-blackout-fabric run 5)
+  for (const t of ['Designer Roller 有几百种面料可选。', '上千种颜色组合可选。', '几千多种颜色。', '成百上千种面料。', '几百块面料样本。', '几百个选项', '我们服务过上千户家庭。']) {
+    assert.deepEqual(checks.priceViolations(t, ''), [], t);
+  }
+  for (const t of ['一般在几千美元。', '大概几百块。', '要上万。', '几百刀左右。', '上千的费用。', '一扇窗几百美元。', '整屋可能要几千。', 'hundreds of dollars', '成百上千的费用']) {
+    assert.ok(checks.priceViolations(t, '').length, `should be flagged: ${t}`);
+  }
+});
+
 test('contact asks: ZIP / personal details asked vs our own phone given', () => {
   assert.deepEqual(checks.contactAsks(GOOD_ZIP), { zip: false, contact: true });
   assert.deepEqual(checks.contactAsks(GOOD_RECO), { zip: false, contact: false });
