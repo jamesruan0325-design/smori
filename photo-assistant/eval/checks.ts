@@ -53,8 +53,13 @@ export function refusals(reply: string): string[] {
 
 const ASK_CUE_RE = /([？?]|方便|麻烦|请(您)?(留|提供|告诉|填)|留(下|个|一个)|提供一下|告诉我|可以给|may i|could you|can you|would you|please (share|leave|provide|send)|what(?:'s| is) your)/i;
 const ZIP_RE = /(邮编|ZIP|zip code|postal code)/i;
-const CONTACT_RE = /(电话|手机号|联系方式|邮箱|e-?mail|phone|contact (info|details)|称呼|姓名|名字|your name|how (should|may) (we|i) (address|call) you)/i;
+const CONTACT_RE = /(电话|手机号|号码|留.{0,4}手机|联系方式|邮箱|e-?mail|phone|contact (info|details)|称呼|姓名|名字|your name|(best|your|a good|contact|callback) number|number (where|to reach|to call|we can|i can)|reach you)/i;
+// Requests that contain a channel verb ("how should we call you", "where should we email you the quote"): checked before channel words are removed.
+const CONTACT_REQUEST_RE = /(how (should|may) (we|i) (address|call) you|where (should|can|do) (we|i) (email|send|text|call|reach) you|what (number|email( address)?) should (we|i))/i;
 const OWN_CONTACT_RE = /(949\D{0,3}880\D{0,3}1322|BonnieX@|致电|call us|打电话给我们|拨打)/i;
+// Phone / email named as a CHANNEL ("电话沟通时", "顾问会电话联系您", "over the phone", "we'll call you"),
+// not a request for the customer's details. Removed before looking for a contact request.
+const CHANNEL_RE = /(电话(沟通|联系(?!方式)|交流|里|中(?!间)|回访|讨论)|(打|通|回)电话|致电|拨打|over the phone|on the phone|by phone|phone (call|conversation|consultation)|(call|email|e-mail|text) you\b)/gi;
 
 /** What the reply asks the customer for: their ZIP code and/or contact details (name, phone, email). */
 export function contactAsks(reply: string): { zip: boolean; contact: boolean } {
@@ -65,7 +70,7 @@ export function contactAsks(reply: string): { zip: boolean; contact: boolean } {
     if (ZIP_RE.test(s)) zip = true;
     // "you can also call us at (949) 880-1322" gives OUR contact; only count it when it also asks for theirs
     const givesOursOnly = OWN_CONTACT_RE.test(s) && !/(您的|你的|your|留下|留个|留一个)/i.test(s);
-    if (CONTACT_RE.test(s) && !givesOursOnly) contact = true;
+    if ((CONTACT_REQUEST_RE.test(s) || CONTACT_RE.test(s.replace(CHANNEL_RE, ' '))) && !givesOursOnly) contact = true;
   }
   return { zip, contact };
 }

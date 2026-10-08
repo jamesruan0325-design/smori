@@ -175,3 +175,27 @@ test('harness: human-no-contact requires asking for the customer\'s contact (A) 
   const asked = await harness.runScenario(byId('contact-us-asked'), 1, { create: scripted([{ text: '我们的电话是 (949) 880-1322，工作时间 Mon–Fri 9AM–5PM。' }]) });
   assert.equal(asked.hardPass, true, 'giving our number when the customer asks for it is fine');
 });
+
+test('contact matcher regression: phone/email named as a channel is not a request for the customer\'s details (human-with-contact)', async () => {
+  // the exact reply that was wrongly failed in the full real-model run (human-with-contact, run 1)
+  const reply = '好的，王先生，已经帮您转给我们的顾问团队了。会有同事在工作时间（周一至周五 9AM–5PM，周末需预约）拨打 949-555-0100 与您联系。\n\n如果您方便的话，也可以先告诉我是哪些房间、大概几扇窗，我可以一并记给顾问，电话沟通时会更顺畅。';
+  assert.deepEqual(checks.contactAsks(reply), { zip: false, contact: false });
+  for (const t of ['顾问会电话联系您，方便先告诉我是哪个房间吗？', 'Could you tell me which rooms, so the consultant can cover it over the phone?', 'Our team will call you during business hours; which room is this for?']) {
+    assert.equal(checks.contactAsks(t).contact, false, t);
+  }
+  // channel-only sentences found by the adversarial review (all labelled "not a request" by 3/3 verifiers)
+  for (const t of ['您更喜欢电话沟通还是到店面谈？', '顾问会电话联系您，确认上门测量的具体时间，您看可以吗？', '电话里不太好判断颜色，建议您先看看实物样品，您觉得呢？']) {
+    assert.equal(checks.contactAsks(t).contact, false, t);
+  }
+  // real requests are still caught, also when a channel is mentioned in the same sentence
+  // (incl. the 12 sentences the adversarial review showed would be missed if channel words were simply removed)
+  for (const t of ['方便留一下您的称呼和最合适的联系电话吗？', '我们会电话联系您，方便留个电话吗？', 'May I have your name and the best phone number to reach you?', 'Our team will call you during business hours. Could you share your email as well?',
+    '方便留个电话联系方式吗？', '方便的话留个手机，顾问打电话跟您确认时间。', "What's the best number for a quick phone call?", 'Could you leave a number where we can reach you by phone?', '顾问回电话的号码是哪个？',
+    'Where should we email you the quote?', '请留下方便打电话的号码', '方便电话沟通的话，留个号码给我', 'How should we call you?', '您的电话中间四位是多少？', '请问用来电话联系的号码是？',
+    '请问您打电话用的是哪个号码？', "Want a designer to give you a phone call? If so, what's the best number?"]) {
+    assert.equal(checks.contactAsks(t).contact, true, t);
+  }
+  const extract = async () => ({ name: '王先生', phone: '949-555-0100', email: null, zip: null, room_type: null, window_count: null, approximate_size: null, primary_need: null, motorization_interest: null, budget_range: null, products_recommended: [], consultation_interest: 'unknown' as const, wants_human: true, summary: '客户要求与顾问电话沟通。' });
+  const run = await harness.runScenario(byId('human-with-contact'), 1, { extract, create: scripted([{ tool: { name: 'request_human', input: { name: '王先生', phone: '949-555-0100', reason: '想和顾问通电话' } } }, { text: reply }]) });
+  assert.equal(run.hardPass, true, JSON.stringify(run.checks.filter((c) => !c.pass)));
+});

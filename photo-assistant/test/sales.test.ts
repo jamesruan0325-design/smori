@@ -457,3 +457,13 @@ test('转人工 form confirmation: new text without our phone; booking and legac
   assert.match(legacy.body.message, /^已收到，我们的顾问会在营业时间内联系您（.*）。急事请致电 \(949\) 880-1322。$/);
   for (const k of Object.keys(proxy.salesDeps)) delete (proxy.salesDeps as any)[k];
 });
+
+test('no early booking: before customer intent, no consultation/visit/sample invitation and no ZIP ask (rule 8)', () => {
+  const p = sales.SALES_SYSTEM;
+  assert.match(p, /Until the customer has shown conversion intent \(rule 9\), do not invite them to the consultation, a visit or samples, and do not ask for a ZIP code, not even at the end of an answer/);
+  assert.match(p, /A conditional offer \("if you'd like to see the fabric, we can arrange a visit"\) is still an invitation: intent must come from the customer's own words, never from your own offer/);
+  assert.match(p, /end the reply with a qualifying question \(rule 2\) or with the answer alone/);
+  assert.match(p, /Saying that a detail will be confirmed by our team or at the consultation \(rules C and D\) is a statement, not an invitation/);
+  // what happens once intent is real is unchanged
+  assert.match(p, /or clearly says they are interested in the recommended option or want to move forward\. Only then:\n {3}- invite them to the complimentary in-home consultation and measurement and, naturally, ask for their ZIP code/);
+});
