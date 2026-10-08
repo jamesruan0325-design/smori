@@ -20,9 +20,22 @@ export function sentences(text: string): string[] {
 }
 
 // A price needs an amount: "$300", "300 美元", "300 per window", "每扇 300". Words like "per window",
-// "each window" or a count ("2 块窗帘", "two shades per window") on their own are not prices. 几百/几千/上千/上万 are
-// money unless a count word follows ("几百种面料", "上千种颜色", "几千多种颜色" are options, not prices).
-const PRICE_RE = /(\$\s?\d[\d,.]*k?|\d[\d,.]*\s?(美元|美金|元(?!素)|块钱|刀|dollars?|usd)|\d{2,}[\d,.]*\s?(per|each|a|\/)\s?(window|panel|shade|square|sq)|(每扇|每幅|每平方(英尺|米)?|per (window|panel|shade|square (foot|feet)|sq\.?\s?ft)|each (window|panel|shade))(\s?(大概|大约|约|在|是|around|about|roughly|is|are|runs|costs?|starts?|at|from)){0,3}\s?\$?\d{2,}|\d+\s?%\s?(off|折扣|优惠)|\d(\.\d)?\s?折|(几百|几千|上千|上万)(?![多余]?\s?(种|款|样|色|个|件|条|扇|幅|家|户|位|次|名|项|块(面料|布|样)))|hundreds of dollars|thousands of dollars)/gi;
+// "each window" or a count ("2 块窗帘", "two shades per window") on their own are not prices.
+// Vague amounts are prices too: 几百/数千/上万/一两千/两三百… unless a count or unit word follows ("几百种面料", "上千种颜色",
+// "数千户家庭" are counts; 百叶 is a blind), Chinese numerals with a currency ("一千多美元", "三千块"), and English
+// "a few thousand dollars", "several hundred dollars per window", "a couple hundred bucks", "a grand", "in the low
+// thousands", "runs into the thousands", "four-figure budget" ("hundreds of fabric options", "thousands of homes" are not).
+const ZH_NOT_MONEY = String.raw`(?![多余来把]?\s?(?:种|款|样|色|个|件|条|扇|幅|家|户|位|次|名|项|人|套|组|张|片|卷|对|根|副|块(?:面料|布|样|窗帘|帘)|小时|分钟|天|周|年|平方|英尺|米|公里|叶))`;
+const ZH_VAGUE = String.raw`(?:(?:好几|几十|数十|几大|几|数|上|一两|两三|三四|三五|四五|五六|六七|七八|八九)[百千万]|[千万]把|(?:[一二两三四五六七八九]?十|[一二两三四五六七八九])[来多几]?万(?:出头|左右|上下)?)${ZH_NOT_MONEY}|[三四五六七]位数(?!的?\s?(?:邮编|ZIP|zip|密码|编号|号码|数字|电话))`;
+const ZH_NUM_MONEY = String.raw`[一二两三四五六七八九几数好]*[十百千万][一二两三四五六七八九十百千万]*[多余来把]?\s?(?:美元|美金|块钱|块(?!(?:窗帘|面料|布|样|板|帘))|刀|元(?![素宵旦]))`;
+// "一千出头一扇", "两千左右每幅", "一扇一千多": a Chinese-numeral amount quoted per unit
+const ZH_UNIT = String.raw`(?:一扇|每扇|一幅|每幅|一个窗|每个窗|每平方|一平方)`;
+const ZH_NUM_PER_UNIT = String.raw`[一二两三四五六七八九十]+[百千万][一二两三四五六七八九十]*[多余来把]?(?:出头|左右|上下|以内|起)?\s?${ZH_UNIT}|${ZH_UNIT}\s?(?:大概|大约|要|在|是)?[一二两三四五六七八九十几]+[百千万][一二两三四五六七八九十]*[多余来把]?(?:出头|左右|上下)?${ZH_NOT_MONEY}`;
+const EN_NUM = String.raw`(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?`;
+// things that are counted, not paid: "20k cycles", "two to three thousand fabrics"
+const EN_COUNTED = String.raw`(?!\s*(?:\+\s*)?(?:cycles?|hours?|homes?|houses?|reviews?|fabrics?|swatches|samples?|options?|colou?rs?|styles?|designs?|followers?|customers?|clients?|projects?|installations?|installs?|windows?|times|steps|miles|feet|foot|ft|lbs?|pounds|sq|square|people|families|units|pieces|threads|rub))`;
+const EN_VAGUE = String.raw`\b(?:a few|a couple(?: of)?|couple(?: of)?|several|few|many|some|another|a|an|${EN_NUM}|\d+(?:\.\d+)?)\s+(?:hundred|thousand)\s+(?:dollars?|bucks|usd)\b|\b${EN_NUM}\s+hundred(?:\s+(?:and\s+)?${EN_NUM})?\s+(?:dollars?|bucks)\b|\b${EN_NUM}\s+(?:hundred|thousand)\s+(?:a|per|each)\s+(?:panel|window|shade|room|piece|yard|foot|square|opening)\b|\b(?:${EN_NUM}|\d+)\s+(?:or|to)\s+(?:${EN_NUM}|\d+)\s+(?:hundred|thousand)\b${EN_COUNTED}|\b\d+(?:\.\d+)?\s?k\b${EN_COUNTED}|\b(?:a few|a couple(?: of)?|couple|several|${EN_NUM}|\d+)\s+g['’]?s\b|\b(?:hundred|thousand)[- ]dollars?\b|\b(?:a|a few|a couple(?: of)?|couple|several|${EN_NUM}|\d+)\s+grand\b|\b(?:low|mid|high|upper)[- ](?:hundreds|thousands|(?:four|five|six)[- ]figures)\b|\b(?:four|five|six)[- ]figures?\b|\b(?:run|runs|running|ran|cost|costs|costing|spend|spending|add|adds|adding|go|goes|going|get|gets|come|comes|land|lands|climb|climbs|climbing|reach|reaches|reaching)\s+(?:you\s+)?(?:well\s+|easily\s+|quickly\s+|often\s+)?(?:into|in)\s+the\s+(?:low\s+|mid\s+|high\s+)?(?:tens of\s+)?(?:hundreds|thousands)\b|\b(?:hundreds|thousands|tens of thousands) of (?:dollars|bucks)\b`;
+const PRICE_RE = new RegExp(String.raw`(\$\s?\d[\d,.]*k?|\d[\d,.]*\s?(美元|美金|元(?!素)|块钱|刀|dollars?|usd)|\d{2,}[\d,.]*\s?(per|each|a|\/)\s?(window|panel|shade|square|sq)|(每扇|每幅|每平方(英尺|米)?|per (window|panel|shade|square (foot|feet)|sq\.?\s?ft)|each (window|panel|shade))(\s?(大概|大约|约|在|是|around|about|roughly|is|are|runs|costs?|starts?|at|from)){0,3}\s?\$?\d{2,}|\d+\s?%\s?(off|折扣|优惠)|\d(\.\d)?\s?折|${ZH_NUM_PER_UNIT}|${ZH_NUM_MONEY}|${ZH_VAGUE}|${EN_VAGUE})`, 'gi');
 
 /** Price amounts / ranges / per-unit costs in the reply that the customer did not say first. */
 export function priceViolations(reply: string, customerText: string): string[] {
@@ -52,15 +65,27 @@ export function locationClaims(reply: string): string[] {
 const EN_NOT = String.raw`(?:do(?:es)?(?:n['’]t| not)|can(?:['’]t|not)|won['’]t|will not|(?:['’]re|are|is)(?:n['’]t| not) able to|unable to)`;
 const EN_SERVE = String.raw`(?:serve|cover|service|come (?:out )?to|travel to|install in|work in)`;
 const EN_PLACE = String.raw`(?:(?:your|that|this|the) (?:area|zip(?: code)?|region|neighbou?rhood|city|location|address|part of town)|zip(?: code)?\s*\d{5}|\d{5}\b|(?:customers|clients|homes|anyone|people) in\b|you (?:there|in)\b|there\b|that far\b)`;
-const REFUSAL_RE = new RegExp(String.raw`(不服务|无法服务|不提供.{0,6}服务|不在.{0,8}服务(范围|区域)|超出.{0,8}服务(范围|区域)|服务不到|outside (?:of )?(?:our service area|the areas? we serve)|beyond (?:our service area|the areas? we serve)|not (?:in|within) our service area|${EN_NOT}\s+(?:currently\s+)?${EN_SERVE}\s+${EN_PLACE})`, 'i');
+const REFUSAL_RE = new RegExp(String.raw`(不服务|无法服务|不在.{0,10}(?:服务|上门|跑|覆盖)的?(范围|区域|路线)|超出.{0,8}(?:服务|上门)的?(范围|区域)|出了?(?:我们的?)?(?:服务|上门)?范围|outside (?:of )?(?:our service area|the areas? we serve)|beyond (?:our service area|the areas? we serve)|not (?:in|within) our service area|${EN_NOT}\s+(?:currently\s+)?${EN_SERVE}\s+${EN_PLACE})`, 'i');
 const OWN_NAMES = [...PRODUCTS.map((p) => p.name.split(' ')[0]), 'Hunter', 'PowerView', 'Somfy', 'Alexa', 'Google', 'Apple', 'HomeKit', 'ALTA', 'S'].join('|');
 // case-sensitive on purpose: the capital letter is what marks a place name
 const EN_REFUSAL_NAME_RE = new RegExp(String.raw`${EN_NOT}\s+(?:currently\s+)?${EN_SERVE}\s+(?:the\s+)?(?!(?:${OWN_NAMES})\b)[A-Z][a-z]+`);
+// Colloquial Chinese refusals ("那边我们去不了", "您那一片我们覆盖不到", "太远了没办法上门", "这个邮编我们暂时不接") count only
+// together with a place cue in the same sentence; without one they describe a service or capability limit
+// ("我们不提供维修服务", "其他品牌的电机我们不上门维修", "纱帘覆盖不了夜间隐私", "一幅帘子覆盖不了这么宽的区域").
+const ZH_REFUSE_VERB = String.raw`(?:去不了|去不到|到不了|过不去|跑不了|跑不过去|不跑(?=[，。！？,.!?了]|$)|够不着|够不到|上不了门|没法上门|没办法上门|无法上门|不能上门|不方便上门|不上门(?!维修|保养|清洗|拆|取|收|回收)|(?:没法|没办法|无法|不能|不)派人(?:过去|去|上门)?|(?:安装|量尺|测量)?(?:师傅|团队|人员)?不过去了?|不去了?(?=[，。！？,.!?]|$)|覆盖不到|覆盖不了|服务不了|服务不到(?!位)|接不了|不接了|上不去门|过不了境|(?:没法|没办法|无法)飞过去|不愿意跑|(?:这边|那边|那里)?我们没人|只能婉拒|不做服务|一律不做|(?:单|订单|单子|项目|生意|活)[^，。！？]{0,8}?(?:做不了|不做了?|接不了|不接)|不接(?:单|这单|这个单|订单|这个项目)|暂时?不接(?=[，。！？,.!?]|$)|安排不了|没法安排|无法安排|不提供(?:上门)?(?:安装|测量)?服务|无法提供(?:上门)?服务|不(?:在|到).{0,12}提供.{0,4}服务)`;
+// place names a Southern California customer is likely to mention, written in Chinese
+const ZH_PLACES = '洛杉矶|圣地亚哥|圣迭戈|旧金山|湾区|拉斯维加斯|棕榈泉|圣塔芭芭拉|圣巴巴拉|特曼库拉|长滩|帕姆代尔|兰卡斯特|贝克斯菲尔德|河滨|内陆帝国|圣伯纳迪诺|圣贝纳迪诺|文图拉|奥克斯纳德|弗雷斯诺|萨克拉门托|圣何塞|比佛利山庄|帕萨迪纳|圣莫尼卡|好莱坞|安大略|维克多维尔|千橡|蒙特雷公园|亚利桑那|内华达|凤凰城|德州|纽约|西雅图|温哥华|恩塞纳达|墨西哥|加拿大';
+const ZH_PLACE_CUE = String.raw`(?:那边|那里|那儿|那块|那一片|那一带|这一带|一带|那么远|地区|城市|地址|邮编|ZIP|\d{5}|太远|太偏|路程|路线|距离|外州|外地|海外|境外|国外|以北|以南|以东|以西|郊区|山庄|半岛|${ZH_PLACES}|[市县州镇郡](?![场面民政])|[一-龥]{2}区(?![域别分间])|的(?:客户|住户))`;
+const ZH_COLLOQUIAL_RE = new RegExp(ZH_REFUSE_VERB);
+const ZH_PLACE_CUE_RE = new RegExp(ZH_PLACE_CUE, 'i');
+// "我们不上门到河滨", "我们的安装团队不去兰卡斯特": we + (not) + go to a place
+const ZH_GO_RE = /(?:我们|团队|师傅|顾问|安装人员)[^，。！？]{0,6}?(?:不|没法|没办法|无法|不能)会?(?:上门)?(?:到|去)(?!(?:推荐|推销|考虑|强调|比较|评价|猜|想|做|管|改|动|碰|催|打扰|揣测|假设|掉|除|污|渍|设计|实现))(?![一二两三四五六七八九十\d几半]|.{0,4}(?:分钟|小时|天|周|月|年))[一-龥A-Za-z0-9 ]{2,12}?(?:测量|安装|上门|那边|那里|一带|地区|[。！？!?，,]|$)/;
 const CONFIRM_RE = /(确认|核实|confirm|check)/i;
 
 /** Sentences that turn a customer away because of location, without saying the team will confirm. */
 export function refusals(reply: string): string[] {
-  return sentences(reply).filter((s) => (REFUSAL_RE.test(s) || EN_REFUSAL_NAME_RE.test(s)) && !CONFIRM_RE.test(s));
+  return sentences(reply).filter((s) =>
+    (REFUSAL_RE.test(s) || EN_REFUSAL_NAME_RE.test(s) || (ZH_COLLOQUIAL_RE.test(s) && ZH_PLACE_CUE_RE.test(s)) || ZH_GO_RE.test(s)) && !CONFIRM_RE.test(s));
 }
 
 const ASK_CUE_RE = /([？?]|方便|麻烦|请(您)?(留|提供|告诉|填)|留(下|个|一个)|提供一下|告诉我|可以给|may i|could you|can you|would you|please (share|leave|provide|send)|what(?:'s| is) your)/i;

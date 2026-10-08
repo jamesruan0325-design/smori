@@ -93,6 +93,36 @@ test('price check regression: 几百/几千/上千 followed by a count word is a
   }
 });
 
+test('price check: vague amounts without digits are prices (English and Chinese)', () => {
+  for (const t of [
+    'A fully motorized living room package typically runs a few thousand dollars.', 'Custom Roman shades usually cost several hundred dollars per window.',
+    'Smart motors add a couple hundred bucks per shade.', 'Most clients spend somewhere in the low thousands for a master bedroom.',
+    'A large sliding-door treatment can easily run into the thousands.', 'For a condo, a complete set often comes in under ten grand.',
+    'Each pleated panel is about twelve hundred dollars, give or take.', 'Most quotes fall in the ten-to-twenty-thousand-dollar range.',
+    'You are looking at a low four-figure investment.', 'If you add motorization, expect roughly another thousand dollars per opening.',
+    '一般客户的整屋窗饰投入在数千美元不等。', '整个项目的费用可能在数百至数千美元之间。', '一扇大概一两千块。', '定制木百叶一般一千出头一扇。', '全屋可能要好几万。', '千把块就能搞定。',
+  ]) assert.ok(checks.priceViolations(t, '').length, `should be flagged: ${t}`);
+  for (const t of [
+    'We carry thousands of fabric swatches.', 'There are a few hundred shades of linen in our sample library.', 'Our motors are rated for tens of thousands of cycles.',
+    'Our ceiling track can support a few hundred pounds of drapery.', 'Hundreds of designers trust us.', 'Pricing is provided after the consultation.',
+    '展厅里陈列着上百套成品窗帘样板。', '我们服务过数千户家庭。', '电机可以开合数万次。', '客厅大概几百平方英尺。', '可以换成百叶帘。', '价格由顾问上门测量后提供。',
+  ]) assert.deepEqual(checks.priceViolations(t, ''), [], t);
+});
+
+test('refusal check: colloquial Chinese location refusals are caught; service-scope limits without a place are not', () => {
+  for (const t of [
+    '抱歉，棕榈泉那边我们去不了。', '很遗憾，我们不上门到贝克斯菲尔德测量和安装。', '抱歉，我们的安装团队不去兰卡斯特。', '您住的特曼库拉那一片我们覆盖不到，只能说声抱歉。',
+    '抱歉，我们不在洛杉矶以北的地区提供上门服务。', '很遗憾，圣塔芭芭拉太远了，我们没办法上门安装。', '抱歉，亚利桑那州的客户我们服务不了。',
+    '不好意思，92315 这个邮编不在我们服务的区域里，没法为您上门。', '圣地亚哥那边我们跑不过去，不好意思。', '拉斯维加斯的单子我们接不了。',
+    '您在旧金山的话，我们这边没法派人过去。', '很抱歉，您住的那一带我们够不着。', '帕姆代尔我们上不了门，实在抱歉。', '外州的订单我们做不了。',
+  ]) assert.ok(checks.refusals(t).length, `should be flagged: ${t}`);
+  for (const t of [
+    '抱歉，其他品牌的电机我们不提供维修服务，但可以换成我们自己的静音电机系统。', '很遗憾，在别处购买的窗帘我们不提供清洗服务。', '其他品牌的电机我们不上门维修。',
+    '如果晚上开灯时也需要隐私，单独的纱帘覆盖不了这个需求。', '这个预算可能覆盖不了全屋十二扇窗的电动化。', '单幅窗帘无法覆盖四米多宽的落地窗。',
+    '一幅帘子覆盖不了这么宽的区域。', '这周我们排不过来，下周可以安排。', '我们不做 DIY 安装。', '92618 在我们的服务范围内。', '看不到外面的风景。',
+  ]) assert.deepEqual(checks.refusals(t), [], t);
+});
+
 test('contact asks: ZIP / personal details asked vs our own phone given', () => {
   assert.deepEqual(checks.contactAsks(GOOD_ZIP), { zip: false, contact: true });
   assert.deepEqual(checks.contactAsks(GOOD_RECO), { zip: false, contact: false });
