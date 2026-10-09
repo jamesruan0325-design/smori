@@ -89,7 +89,7 @@ export function refusals(reply: string): string[] {
 }
 
 const ASK_CUE_RE = /([？?]|方便|麻烦|请(您)?(留|提供|告诉|填)|留(下|个|一个)|提供一下|告诉我|可以给|may i|could you|can you|would you|please (share|leave|provide|send)|what(?:'s| is) your)/i;
-const ZIP_RE = /(邮编|ZIP|zip code|postal code)/i;
+const ZIP_RE = /(邮编|邮政编码|邮递区号|ZIP|zip code|postal code)/i;
 const CONTACT_RE = /(电话|手机号|号码|留.{0,4}手机|联系方式|邮箱|e-?mail|phone|contact (info|details)|称呼|姓名|名字|your name|(best|your|a good|contact|callback) number|number (where|to reach|to call|we can|i can)|reach you)/i;
 // Requests that contain a channel verb ("how should we call you", "where should we email you the quote"): checked before channel words are removed.
 const CONTACT_REQUEST_RE = /(how (should|may) (we|i) (address|call) you|where (should|can|do) (we|i) (email|send|text|call|reach) you|what (number|email( address)?) should (we|i))/i;

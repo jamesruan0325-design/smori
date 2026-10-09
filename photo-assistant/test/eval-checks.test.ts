@@ -292,3 +292,11 @@ test('harness: an unprompted Alustra mention fails the 不推销高端 check (li
     assert.ok(!s.turns.some((t) => /alustra|高端|奢华|luxury|premium|high-end|设计感|质感|texture/i.test(t)), `${s.id}: customer must not ask for premium`);
   }
 });
+
+test('ZIP ask: 邮政编码 counts as asking for the ZIP (intent-booking-zh, 2026-10-09 run 5)', () => {
+  // the exact reply wrongly failed "出现购买意向后询问邮编或联系方式"
+  const reply = '很好，下一步就是我们的免费上门咨询与测量：顾问会带样品到家里确认面料和遮光程度，并精确测量窗户尺寸，之后由团队出报价。\n\n方便先告诉我您的邮政编码吗？我帮您确认一下服务范围。';
+  assert.deepEqual(checks.contactAsks(reply), { zip: true, contact: false });
+  assert.deepEqual(checks.contactAsks('您的 ZIP 是多少？'), { zip: true, contact: false });
+  assert.deepEqual(checks.contactAsks('92618 在我们的服务范围内。'), { zip: false, contact: false });
+});
