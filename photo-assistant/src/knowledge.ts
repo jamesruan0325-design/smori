@@ -3,7 +3,7 @@
  * public website or general product knowledge. No prices, lead times or
  * warranty terms are included on purpose: those must be confirmed by staff.
  */
-import { PRODUCTS } from './config.js';
+import { PRODUCTS, config } from './config.js';
 
 export const BUSINESS = {
   name: 'S. MORI Window Fashion',
@@ -17,6 +17,19 @@ export const BUSINESS = {
   website: 'https://smoriwindowfashion.com',
   consultation: 'complimentary in-home consultation and measurement',
 };
+
+const orList = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}`);
+
+/**
+ * The ZIP rule in the facts, rendered from the same prefix list check_service_area uses, so the
+ * facts, the tool (sales rule 11: "92618 在我们的服务范围内") and the eval judge always agree.
+ */
+export function serviceZipFact(prefixes: string[] = config.serviceZipPrefixes): string {
+  const rule = prefixes.length
+    ? `When a customer gives a ZIP code: a ZIP code beginning with ${orList(prefixes)} is within our service area; for any other ZIP code, or a city or address without a ZIP code, our team confirms coverage. These ZIP prefixes are only for checking a ZIP the customer gives; do not quote or list them to customers.`
+    : 'When a customer gives a ZIP code, city or address, our team confirms coverage.';
+  return `${rule} Never tell a customer that we do not serve their area or that it is outside our service area.`;
+}
 
 export const KNOWLEDGE = `
 ABOUT
@@ -67,7 +80,9 @@ MATCHING NEEDS TO SOLUTIONS (only the options listed in the facts above; the fin
 - Smart home: PowerView with app, schedules and voice assistants; compatibility with a specific existing system is confirmed at the consultation.
 
 SERVICE AREA
-- Based in Irvine; serving ${BUSINESS.serviceArea}. Whether a specific address or city is covered is confirmed by our team; never tell a customer that we do not serve their area.
+- Based in Irvine; serving ${BUSINESS.serviceArea}. Describe our area to customers this way.
+- ${serviceZipFact()}
+- In-home visit dates and times (consultation, measurement and installation) are always confirmed by our team.
 
 CONSULTATION
 - The ${BUSINESS.consultation} is how a project starts: a consultant visits, reviews the windows and needs, shows samples, takes precise measurements, and then the team prepares a quote. Pricing is only provided by our team after that, never in this chat.

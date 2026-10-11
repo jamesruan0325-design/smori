@@ -492,3 +492,22 @@ test('unclear need: no products, at most two related questions (rule 5, consiste
   assert.doesNotMatch(p, /ask one short question first/);
   assert.match(p, /at most one or two questions per message, never a questionnaire/);
 });
+
+test('service area: the facts state the same ZIP rule as check_service_area (rule 11), and never a refusal', async () => {
+  const k = await import('../src/knowledge.js');
+  const { config } = await import('../src/config.js');
+  assert.match(k.KNOWLEDGE, /a ZIP code beginning with 926, 927 or 928 is within our service area; for any other ZIP code, or a city or address without a ZIP code, our team confirms coverage/);
+  assert.match(k.KNOWLEDGE, /do not quote or list them to customers\. Never tell a customer that we do not serve their area or that it is outside our service area\./);
+  assert.match(k.KNOWLEDGE, /In-home visit dates and times \(consultation, measurement and installation\) are always confirmed by our team\./);
+  assert.doesNotMatch(k.KNOWLEDGE, /Whether a specific address or city is covered is confirmed by our team/);
+  // facts and tool agree for every configured prefix
+  for (const p of config.serviceZipPrefixes) {
+    assert.ok(k.KNOWLEDGE.includes(p), p);
+    assert.equal(sales.checkServiceArea(`${p}18`.slice(0, 5).padEnd(5, '0')).likely_in_area, true, p);
+  }
+  assert.equal(sales.checkServiceArea('90012').likely_in_area, false);
+  // a broken prefix setting falls back to "team confirms", never to an empty list
+  assert.equal(k.serviceZipFact([]), 'When a customer gives a ZIP code, city or address, our team confirms coverage. Never tell a customer that we do not serve their area or that it is outside our service area.');
+  assert.match(k.serviceZipFact(['926']), /beginning with 926 is within/);
+  assert.match(k.serviceZipFact(['926', '927']), /beginning with 926 or 927 is within/);
+});
