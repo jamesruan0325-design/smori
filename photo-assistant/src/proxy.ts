@@ -8,8 +8,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { config } from './config.js';
 import { chatTurn, detectLanguage, logExchange, offlineReply, type ChatMessage } from './chat.js';
 import { BUSINESS } from './knowledge.js';
-import { hasContact, saveLead, upsertConversationLead, type PageContext } from './leads.js';
-import { extractLead, salesTurn, validEmail, validPhone, validZip, type SalesDeps } from './sales.js';
+import { CONTACT_PREFERENCE_ZH, contactPreference, hasContact, PREFERENCE_FIELD, saveLead, upsertConversationLead, type PageContext } from './leads.js';
+import { extractLead, salesTurn, validEmail, validPhone, validWechat, validZip, type SalesDeps } from './sales.js';
 
 /** App-proxy signature: sorted "key=value" pairs concatenated with no separator, HMAC-SHA256 hex with the app secret. */
 export function verifyProxySignature(query: Record<string, unknown>, secret = config.apiSecret): boolean {
@@ -38,9 +38,43 @@ export function rateLimited(key: string, limit = config.chatRatePerHour, now = D
   hits.set(key, arr);
   return false;
 }
-function clientIp(req: Request): string {
-  const xff = String(req.headers['x-forwarded-for'] ?? '');
-  return xff.split(',')[0].trim() || req.ip || 'unknown';
+/**
+ * Rate-limit key for the storefront visitor behind a request.
+ * Shopify's App Proxy sends the shopper's IP in X-Forwarded-For ("Authenticate app proxies" on
+ * shopify.dev); Fly's proxy then appends the address it received the request from (Shopify's,
+ * also sent as Fly-Client-IP) and the app's own address (the rightmost entry). The visitor is
+ * therefore the entry just before Fly-Client-IP; entries further left could have been sent by
+ * the visitor and are not trusted. If the only address left is Shopify's own, every shopper
+ * would share one counter, so the conversation is counted instead. Unsigned requests (only
+ * possible with PROXY_SIGNATURE_OPTIONAL, for local testing) use the connecting address.
+ */
+export function clientKey(headers: Record<string, unknown>, signed: boolean, conversationId: string, fallback = 'unknown'): { key: string; how: string; entries: number } {
+  const xff = String(headers['x-forwarded-for'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const fly = String(headers['fly-client-ip'] ?? '').trim();
+  const entries = xff.length;
+  if (!signed) return { key: fly || xff[0] || fallback, how: fly ? 'fly-client-ip' : entries ? 'xff-first' : 'socket', entries };
+  const i = fly ? xff.lastIndexOf(fly) : -1;
+  const [key, how] = i > 0 ? [xff[i - 1], 'before-fly-client-ip'] : entries >= 2 ? [xff[entries - 2], 'second-last'] : [xff[0] ?? '', 'only-entry'];
+  if (!key || key === fly) return { key: `conv:${conversationId}`, how: 'conversation (no visitor IP)', entries };
+  return { key, how, entries };
+}
+
+/* In-memory sample of how keys were derived, for the admin page (salted hashes only; no IPs kept). */
+const keySalt = crypto.randomBytes(16);
+const keySamples: { at: number; how: string; entries: number; key: string; conv: string }[] = [];
+const hashed = (v: string) => crypto.createHash('sha256').update(keySalt).update(v).digest('hex').slice(0, 12);
+function visitorKey(req: Request, conversationId: string): string {
+  const r = clientKey(req.headers as Record<string, unknown>, typeof req.query?.signature === 'string', conversationId, req.ip || 'unknown');
+  keySamples.push({ at: Date.now(), how: r.how, entries: r.entries, key: hashed(r.key), conv: hashed(conversationId) });
+  if (keySamples.length > 1000) keySamples.splice(0, keySamples.length - 1000);
+  return r.key;
+}
+
+/** Last 24 h: how many distinct visitors the limiter saw vs conversations (about equal = keyed per visitor; 1 visitor for many conversations = one shared key). */
+export function rateLimitDiagnostics(now = Date.now()): { requests: number; visitors: number; conversations: number; how: Record<string, number>; xffEntries: Record<string, number> } {
+  const recent = keySamples.filter((s) => s.at > now - 86_400_000);
+  const count = (f: (s: (typeof recent)[number]) => string) => recent.reduce<Record<string, number>>((m, s) => { m[f(s)] = (m[f(s)] ?? 0) + 1; return m; }, {});
+  return { requests: recent.length, visitors: new Set(recent.map((s) => s.key)).size, conversations: new Set(recent.map((s) => s.conv)).size, how: count((s) => s.how), xffEntries: count((s) => String(s.entries)) };
 }
 
 const CONV_RE = /^[A-Za-z0-9_-]{8,64}$/;
@@ -75,7 +109,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
   const lang = detectLanguage(last.content);
   const sales = body.agent === 'sales';
   if (last.content.length > 1500) { res.status(400).json({ error: lang === 'zh' ? '消息太长，请精简后再发。' : 'Message too long.' }); return; }
-  if (rateLimited(clientIp(req))) { res.status(429).json({ reply: lang === 'zh' ? `消息有点多了，请稍后再试，或直接致电 ${BUSINESS.phone}。` : `Too many messages for now. Please try again later or call ${BUSINESS.phone}.`, language: lang, conversationId }); return; }
+  if (rateLimited(visitorKey(req, conversationId))) { res.status(429).json({ reply: lang === 'zh' ? `消息有点多了，请稍后再试，或直接致电 ${BUSINESS.phone}。` : `Too many messages for now. Please try again later or call ${BUSINESS.phone}.`, language: lang, conversationId }); return; }
   if (messages.filter((m) => m.role === 'user').length > config.chatMaxTurns / 2) {
     res.json({ reply: lang === 'zh' ? `这段对话已经比较长了。为了更好地帮到您，请留下电话让顾问联系，或致电 ${BUSINESS.phone}。` : `This conversation is getting long. Please leave a phone number for our team, or call ${BUSINESS.phone}.`, language: lang, handoff: true, conversationId, ...(sales ? { cta: 'human_form' } : {}) });
     return;
@@ -111,8 +145,8 @@ export async function handleLead(req: Request, res: Response): Promise<void> {
   const lang = (s('language') === 'zh' ? 'zh' : detectLanguage(`${s('notes') ?? ''} ${s('interest') ?? ''} ${s('name') ?? ''}`)) as 'zh' | 'en';
   const input = { name: s('name'), phone: s('phone'), email: s('email'), wechat: s('wechat'), city: s('city'), interest: s('interest'), notes: s('notes'), preferred_time: s('preferred_time') };
   if (!hasContact(input)) { res.status(400).json({ error: lang === 'zh' ? '请至少留一个电话、邮箱或微信号。' : 'Please leave a phone number, email or WeChat ID.' }); return; }
-  if (rateLimited(clientIp(req) + ':lead', 10)) { res.status(429).json({ error: 'too many requests' }); return; }
   const conversationId = typeof b.conversationId === 'string' && CONV_RE.test(b.conversationId) ? b.conversationId : 'form';
+  if (rateLimited(visitorKey(req, conversationId) + ':lead', 10)) { res.status(429).json({ error: 'too many requests' }); return; }
   const okMessage = lang === 'zh' ? `已收到，我们的顾问会在营业时间内联系您（${BUSINESS.hours}）。急事请致电 ${BUSINESS.phone}。` : `Received. A team member will contact you during business hours (${BUSINESS.hours}). For anything urgent, call ${BUSINESS.phone}.`;
 
   // AI Sales Agent widget: "预约咨询" (kind=consultation) or "转人工" (kind=human) merge into the conversation's lead
@@ -121,12 +155,22 @@ export async function handleLead(req: Request, res: Response): Promise<void> {
     const errs: string[] = [];
     if (input.phone && !validPhone(input.phone)) errs.push(lang === 'zh' ? '电话号码格式不对' : 'Please check the phone number');
     if (input.email && !validEmail(input.email)) errs.push(lang === 'zh' ? '邮箱格式不对' : 'Please check the email address');
+    if (input.wechat && !validWechat(input.wechat)) errs.push(lang === 'zh' ? '微信号格式不对' : 'Please check the WeChat ID');
     const zip = s('zip');
     if (zip && !validZip(zip)) errs.push(lang === 'zh' ? 'ZIP 应为 5 位数字' : 'ZIP code should be 5 digits');
-    if (kind === 'consultation' && !input.phone && !input.email) errs.push(lang === 'zh' ? '预约咨询请留电话或邮箱。' : 'Please leave a phone number or email to book.');
-    if (errs.length) { res.status(400).json({ error: errs.join('；') }); return; }
+    // any one of phone / email / WeChat is enough; the customer chooses (hasContact above already requires one)
+    const pref = contactPreference(s('contact_preference'));
+    if (pref && !input[PREFERENCE_FIELD[pref]]) {
+      const field = PREFERENCE_FIELD[pref];
+      errs.push(lang === 'zh'
+        ? `您选择了${CONTACT_PREFERENCE_ZH[pref]}联系，请填写${field === 'phone' ? '电话号码' : field === 'email' ? '邮箱' : '微信号'}`
+        : `You chose ${({ phone: 'a call', sms: 'a text message', email: 'email', wechat: 'WeChat' })[pref]}; please fill in your ${field === 'phone' ? 'phone number' : field === 'email' ? 'email' : 'WeChat ID'}`);
+    }
+    if (errs.length) { res.status(400).json({ error: errs.join(lang === 'zh' ? '；' : '; ') }); return; }
     const lead = await upsertConversationLead(conversationId, {
       ...input,
+      wechat: validWechat(input.wechat),
+      contact_preference: pref,
       zip: zip ? validZip(zip) : undefined,
       room_type: s('room_type'),
       page: cleanPageContext(b.page),

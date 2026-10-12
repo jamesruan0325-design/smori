@@ -97,7 +97,16 @@ async function loadHealth() {
     ` &nbsp;|&nbsp; 自动流水线: <b class="${health.auto.enabled?'ok':'warn'}">${health.auto.enabled ? (health.auto.autoPublish ? `每 ${health.auto.pollMinutes} 分钟，把握度 ≥ ${Math.round(health.auto.publishConfidence*100)}% 自动发布` : `每 ${health.auto.pollMinutes} 分钟，只建草稿（人工发布）`) : '已关闭'}</b>` +
     (health.disk ? ` &nbsp;|&nbsp; 磁盘: <b class="${health.disk.low?'err':'ok'}">已用 ${health.disk.usedPct}%（剩 ${health.disk.freeMb} MB）</b>${health.disk.low ? ' <button class="btn small" onclick="api(\'/api/storage/prune\',{method:\'POST\',body:{}}).then(r=>{alert(\'已清理 \'+r.removedFiles+\' 个文件，释放 \'+r.freedMb+\' MB\');loadHealth()}).catch(e=>alert(e.message))">清理</button>' : ''}` : '') +
     ` &nbsp;|&nbsp; 通知: <b class="${health.auto.notify?'ok':'warn'}">${health.auto.notify ? 'ntfy 已配置' : '未配置 NTFY_TOPIC'}</b>` +
-    (health.auto.notify ? ` <button class="btn small" onclick="api('/api/notify/test',{method:'POST',body:{}}).then(r=>alert('已发送，消息 ID '+r.id+'。手机几秒内应收到。')).catch(e=>alert('发送失败：'+e.message))">发送测试通知</button>` : '');
+    (health.auto.notify ? ` <button class="btn small" onclick="api('/api/notify/test',{method:'POST',body:{}}).then(r=>alert('已发送，消息 ID '+r.id+'。手机几秒内应收到。')).catch(e=>alert('发送失败：'+e.message))">发送测试通知</button>` : '') +
+    ` <button class="btn small" onclick="api('/api/notify/test-lead',{method:'POST',body:{}}).then(r=>alert('已发送「SMORI 销售线索：测试推送」，消息 ID '+r.id+'。请确认负责跟进线索的手机收到。')).catch(e=>alert('发送失败：'+e.message))">发送线索测试推送</button>` +
+    (health.leads ? ` &nbsp;|&nbsp; 线索推送: <b class="${health.leads.pushPending?'err':'ok'}">${health.leads.pushPending ? health.leads.pushPending + ' 条没送达，每 5 分钟自动重试' : '正常'}</b>` : '') +
+    rateLimitLine(health.assistant && health.assistant.rateLimit);
+}
+/* rate-limit self-check: the limiter must count each shopper separately, not one shared Shopify address */
+function rateLimitLine(r) {
+  if (!r || !r.requests) return ' &nbsp;|&nbsp; 限流自检: <b>最近 24 小时还没有聊天请求</b>';
+  const shared = (r.how && r.how['conversation (no visitor IP)']) || (r.requests >= 10 && r.visitors === 1 && r.conversations > 3);
+  return ` &nbsp;|&nbsp; 限流自检（24 小时）: <b class="${shared?'err':'ok'}">${r.requests} 次请求，${r.visitors} 个访客，${r.conversations} 段对话${shared ? '：没拿到访客 IP，请告诉开发' : ''}</b>`;
 }
 async function autoRun() { try { const r = await api('/api/auto/run', {method:'POST', body:{}}); alert(`同步完成：新照片 ${r.pulled}，加入案例 ${r.added}，丢弃 ${r.discarded}，完成案例 ${r.finalized.length}${r.errors.length ? '\n错误：' + r.errors.join('\n') : ''}`); loadHealth(); loadProjects(); if (current) openProject(current.id); } catch (e) { alert(e.message); } }
 const AUTO_LABEL = { collecting: '收集中', processing: '处理中', review: '草稿待发布', published: '已发布', error: '出错' };
@@ -140,18 +149,20 @@ function readFacts(form) {
   delete o.product_custom; return o;
 }
 
-const STAGES = [['new','新线索'],['qualified','已确认需求'],['consultation_requested','申请预约咨询'],['handed_to_human','转人工']];
+const STAGES = [['new','新线索'],['contact_pending','有联系方式、待跟进'],['qualified','已确认需求'],['consultation_requested','申请预约咨询'],['handed_to_human','转人工']];
+const PREF_ZH = { phone: '电话', sms: '短信', email: '邮件', wechat: '微信' };
 const STAGE_ZH = Object.fromEntries(STAGES);
 let leadStage = '';
 async function loadLeadsCount() { try { const l = await api('/api/leads'); const open = l.filter(x => !x.handled).length; $('#leadsCount').textContent = open ? open + ' 待处理' : l.length ? '全部已处理' : '暂无'; } catch {} }
 function leadField(label, v) { return v ? `<div><span style="color:var(--muted)">${label}</span> ${esc(Array.isArray(v) ? v.join(', ') : v)}</div>` : ''; }
 function leadCard(l) {
-  const contact = [l.phone, l.email, l.wechat && '微信 '+l.wechat].filter(Boolean).map(esc).join(' · ') || '<span style="color:var(--muted)">（还没有联系方式）</span>';
+  const contact = ([l.phone, l.email, l.wechat && '微信 '+l.wechat].filter(Boolean).map(esc).join(' · ') + (l.contact_preference ? ` <span style="color:var(--gold)">（首选${esc(PREF_ZH[l.contact_preference]||l.contact_preference)}）</span>` : '')) || '<span style="color:var(--muted)">（还没有联系方式）</span>';
+  const pushFail = l.notify_error && !(l.notified||[]).includes(l.stage) ? `<span class="badge" style="border-color:#e07070;color:#e07070" title="${esc(l.notify_error.error||'')}">推送没送达（${l.notify_error.attempts} 次）</span>` : '';
   const stageSel = `<select onchange="api('/api/leads/${l.id}/stage',{method:'POST',body:{stage:this.value}}).then(()=>showLeads())" style="width:auto;padding:4px 8px;font-size:12px">${STAGES.map(([v,t]) => `<option value="${v}" ${l.stage===v?'selected':''}>${t}</option>`).join('')}</select>`;
   return `<div class="panel" style="border-color:${l.handled?'var(--line)':'var(--gold)'}">
     <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <div><b style="color:#fff">${esc(l.name||'（未留姓名）')}</b> · ${contact} ${l.city?'· '+esc(l.city):''}
-        <span class="badge" style="border-color:var(--gold);color:var(--gold)">${esc(STAGE_ZH[l.stage]||l.stage)}</span><span class="badge">${esc(l.lead_source||'')}</span><span class="badge">${l.language==='zh'?'中文':'English'}</span>${l.handled?'<span class="badge">已处理</span>':''}</div>
+        <span class="badge" style="border-color:var(--gold);color:var(--gold)">${esc(STAGE_ZH[l.stage]||l.stage)}</span><span class="badge">${esc(l.lead_source||'')}</span><span class="badge">${l.language==='zh'?'中文':'English'}</span>${l.handled?'<span class="badge">已处理</span>':''}${pushFail}</div>
       <div style="font-size:12px;color:var(--muted)">${esc((l.updatedAt||l.createdAt||'').replace('T',' ').slice(0,16))}</div>
     </div>
     ${l.summary ? `<div style="margin-top:8px">${esc(l.summary)}</div>` : ''}
@@ -174,7 +185,7 @@ async function showLeads() {
   const count = (st) => all.filter(l => l.stage === st).length;
   const tab = (v, t, n) => `<button class="btn small" style="${leadStage===v?'background:var(--gold);color:#000':'border-color:var(--line);color:var(--muted)'}" onclick="leadStage='${v}';showLeads()">${t} ${n}</button>`;
   $('#view').innerHTML = `<h2>网站咨询线索 <span style="font-size:13px;color:var(--muted)">${all.length} 条</span></h2>
-    <p style="color:var(--muted);font-size:13px">AI Sales Agent 每个对话一条线索，阶段只会往前走：新线索 → 已确认需求 → 申请预约咨询 → 转人工。从"已确认需求"开始，每个阶段推送一次 ntfy。也包含旧版 AI 客服"转人工"表单的线索。</p>
+    <p style="color:var(--muted);font-size:13px">AI Sales Agent 每个对话一条线索，阶段只会往前走：新线索 → 有联系方式、待跟进 → 已确认需求 → 申请预约咨询 → 转人工。客户一留下电话、邮箱或微信就推送一次（"有联系方式、待跟进"不代表有购买意向），之后每升一个阶段再推送一次；推送没送达会自动重试。也包含旧版 AI 客服"转人工"表单的线索。</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${tab('', '全部', all.length)}${STAGES.map(([v,t]) => tab(v, t, count(v))).join('')}
       <a class="btn small" href="/api/leads.csv${leadStage?'?stage='+leadStage:''}" download>导出 CSV</a></div>
     ${leads.length ? leads.map(leadCard).join('') : '<p style="color:var(--muted)">这个阶段还没有线索。</p>'}`;

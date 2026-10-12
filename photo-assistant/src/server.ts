@@ -13,8 +13,8 @@ import { getSession } from './tokens.js';
 import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConfigured, dropboxConnected, dropboxAccount, readState as dropboxState } from './dropbox.js';
 import { approveAndPublish, diskStatus, finalizeProject, ingestPhoto, pruneStorage, readLog, runAutoCycle, startScheduler } from './auto.js';
 import { notifyConfigured, sendNtfy } from './notify.js';
-import { proxyAuth, handleChat, handleLead, handlePing } from './proxy.js';
-import { leadsToCsv, listLeads, markLead, setLeadStage, STAGES, type Stage } from './leads.js';
+import { proxyAuth, handleChat, handleLead, handlePing, rateLimitDiagnostics } from './proxy.js';
+import { leadsToCsv, listLeads, markLead, pushPending, retryFailedPushes, setLeadStage, STAGES, type Stage } from './leads.js';
 import { checkPromotions, readPromoState, setPromotionLive, startPromotionScheduler, SOURCES } from './promotions.js';
 import { getMetaobjectStatus, adminUrlFor, PROMOTION_TYPE } from './shopify.js';
 import { claudeConfigured } from './copy.js';
@@ -132,7 +132,8 @@ app.get('/api/health', wrap(async (_req, res) => {
   }
   const dbxConnected = await dropboxConnected();
   const st = await dropboxState();
-  out.assistant = { model: config.chatModel, proxySignatureOptional: config.proxySignatureOptional };
+  out.assistant = { model: config.chatModel, proxySignatureOptional: config.proxySignatureOptional, rateLimit: rateLimitDiagnostics() };
+  try { out.leads = { pushPending: (await listLeads(100_000)).filter(pushPending).length }; } catch { out.leads = null; }
   try { out.disk = await diskStatus(); } catch { out.disk = null; }
   out.auto = { enabled: config.autoEnabled, pollMinutes: config.autoPollMinutes, autoPublish: config.autoPublish, publishConfidence: config.autoPublishConfidence, notify: notifyConfigured(), inbox: Boolean(config.inboxToken) };
   out.dropbox = { configured: dropboxConfigured(), connected: dbxConnected, folder: st.folder ?? config.dropboxFolder, lastRun: st.lastRun ?? null, seen: Object.keys(st.seen).length };
@@ -149,6 +150,8 @@ app.get('/connect/dropbox', (req, res) => beginDropboxAuth(req, res));
 app.post('/api/dropbox/disconnect', wrap(async (_req, res) => { await disconnectDropbox(); res.json({ ok: true }); }));
 app.post('/api/auto/run', wrap(async (req, res) => { res.json(await runAutoCycle(undefined, { fromScratch: Boolean(req.body?.fromScratch) })); }));
 app.post('/api/notify/test', wrap(async (_req, res) => { res.json(await sendNtfy('SMORI 照片助手测试', `测试通知 ${new Date().toLocaleString('zh-CN', { timeZone: config.timezone })}`, config.appUrl)); }));
+// same title prefix and link as a real sales-lead push, so the phone that follows up on leads can confirm it receives them
+app.post('/api/notify/test-lead', wrap(async (_req, res) => { res.json(await sendNtfy('SMORI 销售线索：测试推送（不是真实客户）', `这是一条测试推送，不是真实客户。负责跟进销售线索的手机收到它，说明线索推送正常。\n${new Date().toLocaleString('zh-CN', { timeZone: config.timezone })}`, `${config.appUrl}/#leads`)); }));
 app.post('/api/storage/prune', wrap(async (_req, res) => { const r = await pruneStorage(); res.json({ ...r, disk: await diskStatus() }); }));
 app.get('/api/auto/log', wrap(async (_req, res) => { res.json({ lines: (await readLog(150)).map((l) => JSON.parse(l)) }); }));
 app.post('/api/projects/:id/finalize', wrap(async (req, res) => { res.json(await finalizeProject(param(req, 'id'), undefined, { force: true })); }));
@@ -285,6 +288,12 @@ app.get('/files/:id/:kind/:name', wrap(async (req, res) => {
 
 startScheduler();
 if (config.autoEnabled) startPromotionScheduler();
+// lead pushes that failed (ntfy down, restart in between) are retried every 5 minutes for up to 48 h
+const retryPushes = () => retryFailedPushes()
+  .then((r) => { if (r.retried) console.log(`lead push retry: ${r.delivered}/${r.retried} delivered`); })
+  .catch((e) => console.error('lead push retry failed', (e as Error).message));
+setTimeout(retryPushes, 60_000).unref();
+setInterval(retryPushes, 5 * 60_000).unref();
 app.listen(config.port, () => {
   console.log(`SMORI photo assistant: http://localhost:${config.port}  (data: ${config.dataDir})`);
   console.log(`Claude: ${claudeConfigured() ? config.claudeModel : 'NOT configured'} | OAuth: ${oauthConfigured() ? `${config.appUrl} (client ${config.apiKey.slice(0, 6)}…)` : 'NOT configured'}`);

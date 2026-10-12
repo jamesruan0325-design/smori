@@ -28,6 +28,8 @@ function extract(transcript: string) {
     name: customer.match(/(?:I'm|I am|my name is|我是|我叫)\s*([A-Za-z]+|[一-鿿]{1,4})/i)?.[1] ?? null,
     phone: customer.match(PHONE)?.[0] ?? null,
     email: customer.match(EMAIL)?.[0] ?? null,
+    wechat: customer.match(/(?:微信|wechat)\s*[:：]?\s*([A-Za-z][-_A-Za-z0-9]{3,30})/i)?.[1] ?? null,
+    contact_preference: has(/text me|短信/i) ? 'sms' : null,
     zip: customer.match(ZIP)?.[1] ?? null,
     room_type: has(/bedroom|主卧|卧室/i) ? 'master bedroom' : has(/living room|客厅/i) ? 'living room' : null,
     window_count: customer.match(/(\d+)\s*(?:windows|扇)/i)?.[1] ?? null,

@@ -131,6 +131,11 @@ test('contact asks: ZIP / personal details asked vs our own phone given', () => 
   assert.deepEqual(checks.contactAsks('我们的电话是 (949) 880-1322，有需要随时联系？'), { zip: false, contact: false }, 'giving our "(949) 880-1322" is not asking for theirs');
   assert.deepEqual(checks.contactAsks('May I have your name and a phone number or email?'), { zip: false, contact: true });
   assert.deepEqual(checks.contactAsks('What is your ZIP code?'), { zip: true, contact: false });
+  // WeChat is a contact method too: asking for it early counts as a contact ask
+  assert.deepEqual(checks.contactAsks('方便留个微信吗？'), { zip: false, contact: true });
+  assert.deepEqual(checks.contactAsks("What's your WeChat ID?"), { zip: false, contact: true });
+  assert.deepEqual(checks.contactAsks('方便留一下您的称呼，以及电话、邮箱或微信中您习惯的一种吗？'), { zip: false, contact: true });
+  assert.deepEqual(checks.contactAsks('顾问也可以通过微信和您沟通。'), { zip: false, contact: false }, 'a statement, not a request');
 });
 
 test('products, language, human claim, spec numbers', () => {
@@ -187,7 +192,7 @@ test('harness: a well-behaved reply passes every hard rule; a bad reply fails th
 });
 
 test('harness: booking via chat tool and via the widget form both end in one staged lead with a fresh summary', async () => {
-  const extract = async () => ({ name: null, phone: null, email: null, zip: null, room_type: '主卧', window_count: '3', approximate_size: null, primary_need: '遮光', motorization_interest: null, budget_range: null, products_recommended: ['Duette'], consultation_interest: 'unknown' as const, wants_human: false, summary: '客户想为主卧做遮光。尚未留下联系方式。' });
+  const extract = async () => ({ name: null, phone: null, email: null, wechat: null, contact_preference: null, zip: null, room_type: '主卧', window_count: '3', approximate_size: null, primary_need: '遮光', motorization_interest: null, budget_range: null, products_recommended: ['Duette'], consultation_interest: 'unknown' as const, wants_human: false, summary: '客户想为主卧做遮光。尚未留下联系方式。' });
   const form = await harness.runScenario(byId('lead-form-after-chat'), 1, { create: scripted([{ text: GOOD_RECO }]), extract });
   assert.equal(form.hardPass, true, JSON.stringify(form.checks.filter((c) => !c.pass)));
   assert.equal(form.lead?.stage, 'consultation_requested');
@@ -256,7 +261,7 @@ test('contact matcher regression: phone/email named as a channel is not a reques
     '请问您打电话用的是哪个号码？', "Want a designer to give you a phone call? If so, what's the best number?"]) {
     assert.equal(checks.contactAsks(t).contact, true, t);
   }
-  const extract = async () => ({ name: '王先生', phone: '949-555-0100', email: null, zip: null, room_type: null, window_count: null, approximate_size: null, primary_need: null, motorization_interest: null, budget_range: null, products_recommended: [], consultation_interest: 'unknown' as const, wants_human: true, summary: '客户要求与顾问电话沟通。' });
+  const extract = async () => ({ name: '王先生', phone: '949-555-0100', email: null, wechat: null, contact_preference: null, zip: null, room_type: null, window_count: null, approximate_size: null, primary_need: null, motorization_interest: null, budget_range: null, products_recommended: [], consultation_interest: 'unknown' as const, wants_human: true, summary: '客户要求与顾问电话沟通。' });
   const run = await harness.runScenario(byId('human-with-contact'), 1, { extract, create: scripted([{ tool: { name: 'request_human', input: { name: '王先生', phone: '949-555-0100', reason: '想和顾问通电话' } } }, { text: reply }]) });
   assert.equal(run.hardPass, true, JSON.stringify(run.checks.filter((c) => !c.pass)));
 });

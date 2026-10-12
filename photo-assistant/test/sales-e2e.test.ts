@@ -1,7 +1,8 @@
 /**
  * End-to-end over HTTP: express app-proxy routes -> salesTurn -> real @anthropic-ai/sdk -> local
  * TEST DOUBLE of the Messages API (test/fake-anthropic.ts). Walks one conversation through
- * new -> qualified -> consultation_requested -> handed_to_human, as the storefront widget would.
+ * new -> qualified -> consultation_requested -> handed_to_human, as the storefront widget would
+ * (and a contact-only conversation -> contact_pending).
  */
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -91,4 +92,15 @@ test('widget forms alone (no chat details) still create a staged lead; old widge
   const old = await fetch(`${base}/lead`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversationId: 'e2eoldwidget0001', name: 'Old', phone: '9490001111', notes: 'old widget' }) });
   assert.equal(old.status, 200);
   assert.equal(await getConversationLead('e2eoldwidget0001'), null, 'old widget payload does not create a sales lead');
+});
+
+test('a WeChat ID typed in chat, no need and no booking: 有联系方式、待跟进 is pushed (real SDK + structured output)', async () => {
+  const before = pushes.length;
+  const r = await fetch(`${base}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversationId: 'e2ewechat000001', agent: 'sales', messages: [{ role: 'user', content: 'Hi, my WeChat: wxtest001. What products do you carry?' }] }) });
+  assert.equal(r.status, 200);
+  await new Promise((res) => setTimeout(res, 150)); // background extraction
+  const lead = await getConversationLead('e2ewechat000001');
+  assert.equal(lead!.stage, 'contact_pending');
+  assert.equal(lead!.wechat, 'wxtest001');
+  assert.deepEqual(pushes.slice(before), ['SMORI 销售线索：有联系方式、待跟进']);
 });

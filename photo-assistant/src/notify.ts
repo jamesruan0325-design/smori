@@ -8,7 +8,15 @@ export const ntfyNotify: Notifier = async (title, message, click) => {
   await sendNtfy(title, message, click);
 };
 
-/** Sends one push and returns the server's answer (throws on failure). */
+/**
+ * Sales-lead pushes. Unlike ntfyNotify, a missing or invalid topic is an error: the lead is
+ * flagged in the admin page and the push is retried, instead of being logged and forgotten.
+ */
+export const leadNotify: Notifier = async (title, message, click) => {
+  await sendNtfy(title, message, click);
+};
+
+/** Sends one push and returns the server's answer (throws on failure, including a 10 s timeout). */
 export async function sendNtfy(title: string, message: string, click?: string): Promise<{ id: string }> {
   if (!config.ntfyTopic) throw new Error('NTFY_TOPIC is not set');
   if (!/^[-_A-Za-z0-9]{1,64}$/.test(config.ntfyTopic)) throw new Error(`NTFY_TOPIC "${config.ntfyTopic}" is invalid: ntfy topics may only contain letters, digits, - and _`);
@@ -16,6 +24,7 @@ export async function sendNtfy(title: string, message: string, click?: string): 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ topic: config.ntfyTopic, title, message, click, tags: ['camera'] }),
+    signal: AbortSignal.timeout(10_000),
   });
   const text = await res.text();
   if (!res.ok) { console.error(`ntfy failed: HTTP ${res.status} ${text.slice(0, 200)}`); throw new Error(`ntfy HTTP ${res.status}: ${text.slice(0, 200)}`); }

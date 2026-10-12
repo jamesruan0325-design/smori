@@ -38,7 +38,7 @@ function scripted(responses: Array<{ text?: string; tool?: { name: string; input
   return { create, calls };
 }
 const emptyExtract = (over: Partial<import('../src/sales.js').Extracted> = {}): import('../src/sales.js').Extracted => ({
-  name: null, phone: null, email: null, zip: null, room_type: null, window_count: null, approximate_size: null, primary_need: null,
+  name: null, phone: null, email: null, wechat: null, contact_preference: null, zip: null, room_type: null, window_count: null, approximate_size: null, primary_need: null,
   motorization_interest: null, budget_range: null, products_recommended: [], consultation_interest: 'unknown', wants_human: false, summary: '', ...over,
 });
 
@@ -46,7 +46,9 @@ test('stage rules (deterministic)', () => {
   assert.equal(computeStage({}), null, 'nothing to save');
   assert.equal(computeStage({ room_type: 'bedroom' }), 'new');
   assert.equal(computeStage({ zip: '92618' }), 'new');
-  assert.equal(computeStage({ phone: '9495551234' }), 'new', 'contact alone is a new lead');
+  assert.equal(computeStage({ phone: '9495551234' }), 'contact_pending', 'contact alone: reachable, not a confirmed need');
+  assert.equal(computeStage({ wechat: 'wx_abc123' }), 'contact_pending', 'WeChat counts as a contact');
+  assert.equal(computeStage({ email: 'a@b.com', zip: '92618', budget_range: '5k' }), 'contact_pending', 'ZIP or budget is not a need');
   assert.equal(computeStage({ phone: '9495551234', primary_need: 'blackout' }), 'qualified');
   assert.equal(computeStage({ email: 'a@b.com', room_type: 'bedroom', consultation_interest: 'yes' }), 'consultation_requested');
   assert.equal(computeStage({ room_type: 'bedroom', consultation_interest: 'yes' }), 'new', 'booking needs a contact method');
@@ -176,7 +178,7 @@ test('sales prompt: one primary recommendation (+ at most one alternative); ZIP 
   assert.match(p, /at most ONE alternative/);
   assert.match(p, /why the primary recommendation fits their stated need better/);
   assert.match(p, /List several products only when the customer explicitly asks to compare/);
-  assert.match(p, /Knowing the room, window type or need is NOT a reason to ask for a ZIP code, phone or email/);
+  assert.match(p, /Knowing the room, window type or need is NOT a reason to ask for a ZIP code, phone, email or WeChat/);
   assert.match(p, /Conversion intent means/);
   assert.doesNotMatch(p, /Offer one to three fitting options/, 'old multi-option instruction removed');
   assert.doesNotMatch(p, /once the customer has shared some project details, ask for their ZIP/, 'old early-ZIP instruction removed');
@@ -309,8 +311,8 @@ test('proxy: /chat with agent=sales returns a CTA and extracts in the background
 
   // the widget's "预约咨询" form
   const bad = fakeRes();
-  await proxy.handleLead({ body: { conversationId: conv, agent: 'sales', kind: 'consultation', wechat: 'wx123', language: 'zh' }, headers: {}, ip: '10.0.0.2' } as any, bad as any);
-  assert.equal(bad.statusCode, 400, 'booking needs phone or email');
+  await proxy.handleLead({ body: { conversationId: conv, agent: 'sales', kind: 'consultation', language: 'zh' }, headers: {}, ip: '10.0.0.2' } as any, bad as any);
+  assert.equal(bad.statusCode, 400, 'booking needs one way to reach the customer');
   const badZip = fakeRes();
   await proxy.handleLead({ body: { conversationId: conv, agent: 'sales', kind: 'consultation', phone: '9495552222', zip: '926', language: 'en' }, headers: {}, ip: '10.0.0.2' } as any, badZip as any);
   assert.equal(badZip.statusCode, 400);
@@ -407,21 +409,21 @@ test('location answers: only "within our service area", no claims of nearby / re
 
 test('talking to a person: ask for the customer\'s contact instead of giving ours; don\'t re-ask when we have it', async () => {
   const p = sales.SALES_SYSTEM;
-  assert.match(p, /ask for their name and the best phone number to reach them/);
+  assert.match(p, /ask for their name and the best way to reach them: a phone number \(call or text\), email or WeChat, whichever they prefer/);
   assert.match(p, /Do NOT give our phone number or email instead of asking/);
-  assert.match(p, /If they already gave a phone number or email: do not ask for it again/);
+  assert.match(p, /If they already gave a phone number, email or WeChat ID: do not ask for it again/);
   assert.match(p, /are given only when the customer asks for them/);
   assert.doesNotMatch(p, /may always be given/, 'old "always give our phone" rule removed');
   assert.doesNotMatch(p, /call request_human \(with their contact details if they gave any\) and give the phone number/);
   // the rule that keeps contact requests late in normal conversations is unchanged
-  assert.match(p, /Knowing the room, window type or need is NOT a reason to ask for a ZIP code, phone or email/);
+  assert.match(p, /Knowing the room, window type or need is NOT a reason to ask for a ZIP code, phone, email or WeChat/);
 
   // no contact yet: the tool result tells the model to ask for name + phone, not to give our number
   let s = scripted([{ tool: { name: 'request_human', input: { reason: 'wants a person' } } }, { text: '可以让我们的团队直接联系您，方便留下您的称呼和电话吗？' }]);
   let r = await sales.salesTurn([{ role: 'user', content: '我想跟真人聊' }], 'conv-human-ask-01', undefined, { create: s.create, notify: async () => {} });
   const noContactResult = s.calls[1].messages.at(-1).content[0];
   assert.equal(noContactResult.is_error, true);
-  assert.match(noContactResult.content, /ask for their name and the best phone number/);
+  assert.match(noContactResult.content, /ask for their name and the best way to reach them: a phone number \(call or text\), email or WeChat, whichever they prefer/);
   assert.match(noContactResult.content, /Do not give our phone number or email/);
   assert.doesNotMatch(noContactResult.content, /949|BonnieX/i, 'our phone/email are not handed to the model to repeat');
   assert.equal(r.cta, 'human_form');

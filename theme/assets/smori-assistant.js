@@ -14,17 +14,29 @@
           foot: 'AI 助手回答仅供参考；价格、交期、保修以顾问确认为准。', offline: '智能助手暂时无法连接。请致电 ' + phone + ' 或发邮件至 ' + email + '。',
           chips: ['卧室怎么做到完全遮光？', '白天有隐私、晚上呢？', '电动窗帘能用手机控制吗？', '你们上门测量吗？', '我想预约顾问'],
           formTitle: '留下联系方式，顾问会联系您', nameL: '姓名', phoneL: '电话', emailL: '邮箱', wechat: '微信号', need: '您的需求（房间、窗户数量、想了解的产品）', submit: '提交', cancel: '取消', contactReq: '请至少留一个电话、邮箱或微信号。', sent: '已收到，顾问会在营业时间内联系您。', handoffHint: '也可以直接致电 ' + phone + '。',
-          salesSub: 'AI 窗饰顾问', salesGreeting: root.dataset.salesGreetingZh, book: '预约咨询', cta: '预约免费上门咨询', bookTitle: '预约免费上门咨询：顾问会联系您确认时间', zip: 'ZIP 邮编', time: '方便的时间（如 周六上午）', bookNeed: '想做的房间和需求（可不填）', bookReq: '请留下电话或邮箱，方便顾问联系您确认时间。', booked: '预约申请已收到，顾问会在营业时间内联系您确认时间。',
+          salesSub: 'AI 窗饰顾问', salesGreeting: root.dataset.salesGreetingZh, book: '预约咨询', cta: '预约免费上门咨询', bookTitle: '预约免费上门咨询：顾问会联系您确认时间', zip: 'ZIP 邮编', time: '方便的时间（如 周六上午）', bookNeed: '想做的房间和需求（可不填）', bookReq: '请留下电话、邮箱或微信中的任意一种，方便顾问联系您确认时间。', booked: '预约申请已收到，顾问会在营业时间内联系您确认时间。',
+          prefL: '首选方式（可不选）', prefOpts: { phone: '打电话', sms: '发短信', email: '发邮件', wechat: '加微信' },
+          prefNeed: { phone: '您选择了电话联系，请填写电话号码。', sms: '您选择了短信联系，请填写电话号码。', email: '您选择了邮件联系，请填写邮箱。', wechat: '您选择了微信联系，请填写微信号。' }, sending: '提交中…',
+          notice: '对话由 AI 处理并会被保存，用于回答您的问题和顾问跟进。', privacy: '隐私政策', consent: '提交即表示您同意我们通过您留下的方式（电话、短信、邮件或微信）就本次咨询联系您。',
           salesFoot: 'AI 顾问不提供报价；价格由顾问上门测量后提供。交期、保修以顾问确认为准。',
           salesChips: ['主卧想要遮光，有什么方案？', '客厅大落地窗怎么兼顾采光和隐私？', '想把家里窗帘换成电动的', '怎么收费？', '我想预约上门咨询'] },
     en: { name: root.dataset.nameEn || 'SMORI Assistant', sub: 'AI assistant', greeting: root.dataset.greetingEn, placeholder: 'Type your question…', send: 'Send', human: 'Talk to a person', close: 'Close', typing: 'Typing…',
           foot: 'AI answers are for guidance; prices, lead times and warranty are confirmed by our team.', offline: 'The assistant is unavailable right now. Please call ' + phone + ' or email ' + email + '.',
           chips: ['How do I get full blackout in a bedroom?', 'Privacy during the day and at night?', 'Can motorized shades be controlled from my phone?', 'Do you measure and install?', 'Book a consultation'],
           formTitle: 'Leave your details and a team member will contact you', nameL: 'Name', phoneL: 'Phone', emailL: 'Email', wechat: 'WeChat ID', need: 'What you need (rooms, number of windows, products)', submit: 'Submit', cancel: 'Cancel', contactReq: 'Please leave a phone number, email or WeChat ID.', sent: 'Received. A team member will contact you during business hours.', handoffHint: 'You can also call ' + phone + '.',
-          salesSub: 'AI design consultant', salesGreeting: root.dataset.salesGreetingEn, book: 'Book consultation', cta: 'Book a free in-home consultation', bookTitle: 'Free in-home consultation: a team member will contact you to confirm a time', zip: 'ZIP code', time: 'Preferred time (e.g. Saturday morning)', bookNeed: 'Rooms and needs (optional)', bookReq: 'Please leave a phone number or email so we can confirm a time.', booked: 'Request received. A team member will contact you during business hours to confirm a time.',
+          salesSub: 'AI design consultant', salesGreeting: root.dataset.salesGreetingEn, book: 'Book consultation', cta: 'Book a free in-home consultation', bookTitle: 'Free in-home consultation: a team member will contact you to confirm a time', zip: 'ZIP code', time: 'Preferred time (e.g. Saturday morning)', bookNeed: 'Rooms and needs (optional)', bookReq: 'Please leave a phone number, email or WeChat ID so we can confirm a time.', booked: 'Request received. A team member will contact you during business hours to confirm a time.',
+          prefL: 'Contact by (optional)', prefOpts: { phone: 'Call', sms: 'Text', email: 'Email', wechat: 'WeChat' },
+          prefNeed: { phone: 'You chose a call; please add your phone number.', sms: 'You chose a text message; please add your phone number.', email: 'You chose email; please add your email.', wechat: 'You chose WeChat; please add your WeChat ID.' }, sending: 'Sending…',
+          notice: 'Chats are answered by AI and saved so our team can follow up.', privacy: 'Privacy policy', consent: 'By submitting, you agree that our team may contact you about this inquiry using the details you provide (call, text, email or WeChat).',
           salesFoot: 'The AI consultant does not quote prices; pricing comes from our team after the in-home measurement. Lead times and warranty are confirmed by our team.',
           salesChips: ['Blackout options for a bedroom?', 'Light and privacy for a large living-room window?', 'I want to motorize my shades', 'How does pricing work?', 'Book an in-home consultation'] }
   };
+  /* privacy notice / consent wording and the privacy-policy link can be set in the theme editor */
+  [['zh', 'Zh'], ['en', 'En']].forEach(function (p) {
+    if (root.dataset['notice' + p[1]]) T[p[0]].notice = root.dataset['notice' + p[1]];
+    if (root.dataset['consent' + p[1]]) T[p[0]].consent = root.dataset['consent' + p[1]];
+  });
+  var privacyUrl = /^(https:\/\/|\/(?!\/))/.test(root.dataset.privacyUrl || '') ? root.dataset.privacyUrl : '';
   var state = { id: null, messages: [], online: null };
   try { var saved = JSON.parse(sessionStorage.getItem('smori_chat') || 'null'); if (saved && saved.id) state = saved; } catch (e) {}
   if (!state.id) state.id = 'c' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
@@ -57,7 +69,8 @@
   function applyLang() {
     $('.sma-name').textContent = t('name'); $('.sma-sub').textContent = t('sub'); $('.sma-human').textContent = t('human'); $('.sma-close').textContent = t('close');
     if (mode === 'sales') { $('.sma-book').style.display = ''; $('.sma-book').textContent = t('book'); }
-    input.placeholder = t('placeholder'); sendBtn.textContent = t('send'); $('.sma-foot').textContent = t('foot');
+    input.placeholder = t('placeholder'); sendBtn.textContent = t('send');
+    $('.sma-foot').innerHTML = esc(t('foot')) + '<br>' + esc(t('notice')) + (privacyUrl ? ' <a href="' + esc(privacyUrl) + '" target="_blank" rel="noopener">' + esc(t('privacy')) + '</a>' : '');
     chips.innerHTML = state.messages.length ? '' : t('chips').map(function (c) { return '<button type="button">' + esc(c) + '</button>'; }).join('');
     chips.querySelectorAll('button').forEach(function (b) { b.onclick = function () { send(b.textContent); }; });
   }
@@ -110,7 +123,7 @@
   function salesCta(j) {
     if (j.cta === 'booked' || j.cta === 'human_sent') { state.booked = true; save(); return; }
     /* the customer wants a person: capture their contact with the form (no "call us" hint here; our number is given only when asked) */
-    if (j.cta === 'human_form') { openForm('human'); return; }
+    if (j.cta === 'human_form') { openForm('human', true); return; }
     if (j.cta === 'consultation' && !state.ctaShown && !state.booked) {
       state.ctaShown = true; save();
       var d = document.createElement('div'); d.className = 'sma-cta';
@@ -121,36 +134,49 @@
   }
 
   var formKind = null;
-  function openForm(kind) {
-    if (form.style.display !== 'none' && formKind === kind) { form.style.display = 'none'; return; }
-    formKind = kind; form.style.display = 'flex';
-    var book = kind === 'consultation';
-    form.innerHTML = '<div style="color:#fff;font-size:13px">' + esc(t(book ? 'bookTitle' : 'formTitle')) + '</div>' +
+  function closeForm() { form.style.display = 'none'; formKind = null; chips.style.display = ''; }
+  /* the form takes the space of the quick-reply chips and scrolls inside the panel; the submit row stays visible (see .sma-form .actions) */
+  function openForm(kind, keepOpen) {
+    if (form.style.display !== 'none' && formKind === kind) { if (!keepOpen) closeForm(); return; }
+    formKind = kind; form.style.display = 'flex'; chips.style.display = 'none';
+    var book = kind === 'consultation', opts = t('prefOpts');
+    form.innerHTML = '<div class="sma-form-title">' + esc(t(book ? 'bookTitle' : 'formTitle')) + '</div>' +
       '<input name="name" placeholder="' + esc(t('nameL')) + '" autocomplete="name">' +
       '<div class="row"><input name="phone" placeholder="' + esc(t('phoneL')) + '" inputmode="tel" autocomplete="tel"><input name="email" placeholder="' + esc(t('emailL')) + '" inputmode="email" autocomplete="email"></div>' +
+      '<div class="row"><input name="wechat" placeholder="' + esc(t('wechat')) + '"><select name="contact_preference"><option value="">' + esc(t('prefL')) + '</option>' +
+        ['phone', 'sms', 'email', 'wechat'].map(function (k) { return '<option value="' + k + '">' + esc(opts[k]) + '</option>'; }).join('') + '</select></div>' +
       (book
         ? '<div class="row"><input name="zip" placeholder="' + esc(t('zip')) + '" inputmode="numeric" maxlength="10" autocomplete="postal-code"><input name="preferred_time" placeholder="' + esc(t('time')) + '"></div>' +
           '<textarea name="notes" placeholder="' + esc(t('bookNeed')) + '"></textarea>'
-        : '<input name="wechat" placeholder="' + esc(t('wechat')) + '">' +
-          '<textarea name="notes" placeholder="' + esc(t('need')) + '"></textarea>') +
-      '<div class="err" style="display:none"></div>' +
-      '<div class="actions"><button type="button" class="cancel">' + esc(t('cancel')) + '</button><button type="submit" class="primary">' + esc(t('submit')) + '</button></div>';
-    form.querySelector('.cancel').onclick = function () { form.style.display = 'none'; };
+        : '<textarea name="notes" placeholder="' + esc(t('need')) + '"></textarea>') +
+      '<div class="actions"><div class="err" style="display:none"></div><div class="consent">' + esc(t('consent')) + '</div>' +
+        '<div class="buttons"><button type="button" class="cancel">' + esc(t('cancel')) + '</button><button type="submit" class="primary">' + esc(t('submit')) + '</button></div></div>';
+    form.scrollTop = 0; msgs.scrollTop = msgs.scrollHeight;
+    form.querySelector('.cancel').onclick = closeForm;
     form.onsubmit = function (e) {
       e.preventDefault();
-      var f = new FormData(form), body = { conversationId: state.id, language: lang }, er = form.querySelector('.err');
-      ['name', 'phone', 'email', 'wechat', 'notes', 'zip', 'preferred_time'].forEach(function (k) { if (f.has(k)) body[k] = (f.get(k) || '').toString().trim(); });
-      if (book ? (!body.phone && !body.email) : (!body.phone && !body.email && !body.wechat)) { er.textContent = t(book ? 'bookReq' : 'contactReq'); er.style.display = 'block'; return; }
+      if (form.dataset.busy) return; /* one submission at a time: a double click or double tap sends once */
+      var f = new FormData(form), body = { conversationId: state.id, language: lang }, er = form.querySelector('.err'), btn = form.querySelector('button[type="submit"]');
+      function fail(msg) { er.textContent = msg; er.style.display = 'block'; }
+      ['name', 'phone', 'email', 'wechat', 'contact_preference', 'notes', 'zip', 'preferred_time'].forEach(function (k) { if (f.has(k)) body[k] = (f.get(k) || '').toString().trim(); });
+      /* any one of phone / email / WeChat is enough; the customer chooses */
+      if (!body.phone && !body.email && !body.wechat) return fail(t(book ? 'bookReq' : 'contactReq'));
+      var needs = body.contact_preference && { phone: 'phone', sms: 'phone', email: 'email', wechat: 'wechat' }[body.contact_preference];
+      if (needs && !body[needs]) return fail(t('prefNeed')[body.contact_preference]);
       var last = state.messages.filter(function (m) { return m.role === 'user'; }).slice(-3).map(function (m) { return m.content; }).join(' / ');
       if (last) body.interest = last.slice(0, 300);
       if (mode === 'sales') { body.agent = 'sales'; body.kind = kind; body.page = pageContext(); }
+      var label = btn.textContent;
+      form.dataset.busy = '1'; btn.disabled = true; btn.textContent = t('sending'); er.style.display = 'none';
+      function done() { delete form.dataset.busy; btn.disabled = false; btn.textContent = label; }
       fetch(endpoint + '/lead', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
         .then(function (x) {
-          if (x.ok) { form.style.display = 'none'; if (book) { state.booked = true; save(); } add('sys', (x.j && x.j.message) || t(book ? 'booked' : 'sent')); }
-          else { er.textContent = (x.j && x.j.error) || t('offline'); er.style.display = 'block'; }
+          done();
+          if (x.ok) { if (formKind === kind) closeForm(); if (book) { state.booked = true; save(); } add('sys', (x.j && x.j.message) || t(book ? 'booked' : 'sent')); }
+          else fail((x.j && x.j.error) || t('offline'));
         })
-        .catch(function () { er.textContent = t('offline'); er.style.display = 'block'; });
+        .catch(function () { done(); fail(t('offline')); });
     };
     var first = form.querySelector('input[name="name"]'); if (first) first.focus();
   }

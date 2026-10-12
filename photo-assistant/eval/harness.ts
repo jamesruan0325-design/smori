@@ -74,7 +74,7 @@ export async function runScenario(sc: Scenario, run: number, deps: HarnessDeps =
   return result;
 }
 
-type LeadLike = Pick<Lead, 'stage' | 'summary' | 'phone' | 'email' | 'wechat'> | null;
+type LeadLike = Pick<Lead, 'stage' | 'summary' | 'phone' | 'email' | 'wechat' | 'contact_preference'> | null;
 
 /** All hard checks for one run. Global rules apply to every turn of every scenario. */
 export function applyChecks(sc: Scenario, turns: TurnRecord[], lead: LeadLike, leadCount: number): Check[] {
@@ -147,9 +147,10 @@ export function applyChecks(sc: Scenario, turns: TurnRecord[], lead: LeadLike, l
   }
   if (e.stage !== undefined) add(`线索阶段 = ${e.stage}`, (lead?.stage ?? null) === e.stage, `实际：${lead?.stage ?? '无线索'}`);
   if (e.singleLead) add('同一对话只有一条线索', leadCount === 1, `实际 ${leadCount} 条`);
+  if (e.contactPreference !== undefined) add(`线索记录的首选联系方式 = ${e.contactPreference}`, (lead?.contact_preference ?? null) === e.contactPreference, `实际：${lead?.contact_preference ?? '未记录'}`);
   if (e.freshSummary && lead && hasContact(lead)) {
     const s = lead.summary ?? '';
-    const contact = lead.phone ?? lead.email ?? lead.wechat ?? '';
+    const contact = lead.phone ?? lead.email ?? lead.wechat ?? '';  // the summary must show the contact the customer left (WeChat-only too)
     add('摘要包含最新联系方式且没有"尚未留下"', !STALE_SUMMARY_RE.test(s) && s.includes(contact), clip(s, 240));
   }
   return out;

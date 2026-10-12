@@ -18,6 +18,11 @@
        data-sales-greeting-zh="{{ section.settings.sales_greeting_zh | escape }}"
        data-phone="{{ section.settings.phone | escape }}"
        data-email="{{ section.settings.email | escape }}"
+       data-privacy-url="{{ section.settings.privacy_url | escape }}"
+       data-notice-zh="{{ section.settings.notice_zh | escape }}"
+       data-notice-en="{{ section.settings.notice_en | escape }}"
+       data-consent-zh="{{ section.settings.consent_zh | escape }}"
+       data-consent-en="{{ section.settings.consent_en | escape }}"
        data-position="{{ section.settings.position }}">
   </div>
   <script src="{{ 'smori-assistant.js' | asset_url }}" defer></script>
@@ -39,7 +44,13 @@
     { "type": "textarea", "id": "sales_greeting_en", "label": "Sales Agent greeting (EN)", "default": "Hi, I'm the SMORI AI design consultant. Tell me about the room and what you'd like to improve (darkness, privacy, light, insulation or style), and I'll suggest options. Pricing is provided by our team after a free in-home consultation." },
     { "type": "textarea", "id": "sales_greeting_zh", "label": "Sales Agent 欢迎语（中文）", "default": "您好，我是 SMORI 的 AI 窗饰顾问。告诉我是哪个房间、想改善什么（遮光、隐私、采光、隔热或装饰），我来帮您推荐合适的方案。具体价格由顾问免费上门测量后提供。" },
     { "type": "text", "id": "phone", "label": "Phone for human handoff", "default": "(949) 880-1322" },
-    { "type": "text", "id": "email", "label": "Email for human handoff", "default": "BonnieX@smoriwindowfashion.com" }
+    { "type": "text", "id": "email", "label": "Email for human handoff", "default": "BonnieX@smoriwindowfashion.com" },
+    { "type": "header", "content": "Privacy notice" },
+    { "type": "text", "id": "privacy_url", "label": "Privacy policy link", "info": "Leave empty until the store's privacy policy is published, then use /policies/privacy-policy. Shown after the chat notice." },
+    { "type": "textarea", "id": "notice_zh", "label": "聊天提示（中文）", "info": "Shown under the chat. Empty = 对话由 AI 处理并会被保存，用于回答您的问题和顾问跟进。" },
+    { "type": "textarea", "id": "notice_en", "label": "Chat notice (EN)", "info": "Shown under the chat. Empty = Chats are answered by AI and saved so our team can follow up." },
+    { "type": "textarea", "id": "consent_zh", "label": "表单提交说明（中文）", "info": "Shown above the form buttons. Empty = 提交即表示您同意我们通过您留下的方式（电话、短信、邮件或微信）就本次咨询联系您。" },
+    { "type": "textarea", "id": "consent_en", "label": "Form notice (EN)", "info": "Shown above the form buttons. Empty = By submitting, you agree that our team may contact you about this inquiry using the details you provide (call, text, email or WeChat)." }
   ]
 }
 {% endschema %}

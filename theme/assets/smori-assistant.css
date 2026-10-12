@@ -11,7 +11,7 @@
 .sma-head-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .sma-head button { background: none; border: 1px solid var(--sma-line); color: var(--sma-muted); font-size: 11px; letter-spacing: 1px; padding: 6px 10px; cursor: pointer; }
 .sma-head button:hover { border-color: var(--sma-gold); color: var(--sma-gold); }
-.sma-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.sma-messages { flex: 1; min-height: 72px; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .sma-msg { max-width: 86%; padding: 10px 14px; white-space: pre-wrap; word-break: break-word; }
 .sma-msg.user { align-self: flex-end; background: var(--sma-gold); color: #000; }
 .sma-msg.bot { align-self: flex-start; background: var(--sma-panel); border: 1px solid var(--sma-line); }
@@ -27,14 +27,21 @@
 .sma-input button { background: var(--sma-gold); color: #000; border: 0; padding: 0 16px; cursor: pointer; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
 .sma-input button:disabled { opacity: .5; cursor: default; }
 .sma-foot { font-size: 10px; color: var(--sma-muted); text-align: center; padding: 6px 12px 10px; background: var(--sma-panel); }
-.sma-form { padding: 16px; display: flex; flex-direction: column; gap: 8px; background: var(--sma-panel); border-top: 1px solid var(--sma-line); }
-.sma-form input, .sma-form textarea { background: #1b1b1b; border: 1px solid #333; color: #eee; padding: 9px 11px; font: inherit; font-size: 13px; }
-.sma-form textarea { height: 60px; resize: none; }
+.sma-foot a { color: var(--sma-gold); }
+/* the form shrinks and scrolls inside the panel (the messages keep at least 72px); the submit row is sticky, so it is always visible */
+.sma-form { padding: 14px 16px 0; display: flex; flex-direction: column; gap: 8px; background: var(--sma-panel); border-top: 1px solid var(--sma-line); flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.sma-form-title { color: #fff; font-size: 13px; }
+.sma-form input, .sma-form textarea, .sma-form select { background: #1b1b1b; border: 1px solid #333; color: #eee; padding: 9px 11px; font: inherit; font-size: 13px; }
+.sma-form select { color: #bbb; }
+.sma-form textarea { height: 60px; min-height: 60px; resize: none; }
 .sma-form .row { display: flex; gap: 8px; }
 .sma-form .row > * { flex: 1; min-width: 0; }
-.sma-form .actions { display: flex; gap: 8px; justify-content: flex-end; }
+.sma-form .actions { position: sticky; bottom: 0; margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 0 12px; background: var(--sma-panel); }
+.sma-form .actions .buttons { display: flex; gap: 8px; justify-content: flex-end; }
 .sma-form .actions button { border: 1px solid var(--sma-line); background: none; color: var(--sma-text); padding: 8px 14px; cursor: pointer; font-size: 12px; }
 .sma-form .actions button.primary { background: var(--sma-gold); color: #000; border-color: var(--sma-gold); }
+.sma-form .actions button:disabled { opacity: .6; cursor: default; }
+.sma-form .consent { font-size: 10px; line-height: 1.4; color: var(--sma-muted); }
 .sma-form .err { color: #e07070; font-size: 12px; }
 .sma-head button.sma-book { border-color: var(--sma-gold); color: var(--sma-gold); }
 .sma-head button.sma-book:hover { background: var(--sma-gold); color: #000; }

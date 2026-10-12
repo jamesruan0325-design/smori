@@ -7,7 +7,7 @@
  * claims, no refusal by location, never claims to be human, reply language).
  * `judge` items are graded by an AI judge and are advisory only.
  */
-import type { Stage } from '../src/leads.js';
+import type { ContactPreference, Stage } from '../src/leads.js';
 import type { Cta } from '../src/sales.js';
 
 export type Lang = 'zh' | 'en';
@@ -53,6 +53,8 @@ export interface Scenario {
     mustNotMatch?: { turn?: number; re: RegExp; label: string; unless?: RegExp }[];
     stage?: Stage | null;
     singleLead?: boolean;
+    /** How the customer asked to be contacted, as recorded on the lead (null = nothing recorded). */
+    contactPreference?: ContactPreference | null;
     /** When the lead has contact details, its summary must show them and must not say they are missing. */
     freshSummary?: boolean;
   };
@@ -335,13 +337,13 @@ export const SCENARIOS: Scenario[] = [
       tools: [{ turn: 0, tool: 'request_human' }], cta: [{ turn: 0, cta: ['human_form', 'human_sent'] }],
       askPersonalAt: [0], noOwnContactAt: [0],
     },
-    judge: ['配合转人工：说明可以让 SMORI 团队主动联系客户，并询问客户姓名和电话（或邮箱）', '没有主动给出 SMORI 的电话或邮箱来代替获取客户联系方式', J_TONE],
+    judge: ['配合转人工：说明可以让 SMORI 团队主动联系客户，并询问客户姓名和联系方式（电话、短信、邮箱或微信由客户选，没有强制只能留电话）', '没有主动给出 SMORI 的电话或邮箱来代替获取客户联系方式', J_TONE],
   },
   {
     id: 'human-rep-en', category: '转人工', title: 'English: sales representative, no contact yet', lang: 'en',
     turns: ['Can I speak with a sales representative?'],
     expect: { tools: [{ turn: 0, tool: 'request_human' }], askPersonalAt: [0], noOwnContactAt: [0] },
-    judge: ["Offered to have the S. MORI team contact the customer and asked for their name and best phone number (or email)", 'Did not volunteer the S. MORI phone number or email instead of capturing the lead', J_TONE],
+    judge: ["Offered to have the S. MORI team contact the customer and asked for their name and the best way to reach them (phone, text, email or WeChat, the customer's choice; not phone only)", 'Did not volunteer the S. MORI phone number or email instead of capturing the lead', J_TONE],
   },
   {
     id: 'contact-us-asked', category: '转人工', title: '客户明确问店铺电话：可以给出', lang: 'zh',
@@ -386,6 +388,42 @@ export const SCENARIOS: Scenario[] = [
     turns: ['卧室怎么做遮光？', 'Could you explain that in English please?'],
     expect: {},
     judge: ['Switched to English when the customer asked', J_PRIMARY, J_FACTS],
+  },
+
+  /* ---------------- 联系方式：客户主动留下、客户自己选方式 ---------------- */
+  {
+    id: 'contact-volunteered-no-intent', category: '联系方式选择', title: '客户先留电话、只想了解产品：不推预约、不再要信息，线索=有联系方式待跟进', lang: 'zh', extract: true,
+    turns: ['你好，我姓陈，电话 949-555-0123，想先了解一下你们都做哪些窗帘产品'],
+    expect: { noContactAskBefore: 1, cta: [{ turn: 0, cta: null }], stage: 'contact_pending', singleLead: true, freshSummary: true },
+    judge: ['客户只是留了电话、还没表达预约意向：先回答问题、了解需求，没有邀请预约或上门，也没有再索要邮编、邮箱等信息', J_FACTS, J_TONE],
+  },
+  {
+    id: 'contact-volunteered-en', category: '联系方式选择', title: 'English: contact given first, just browsing', lang: 'en', extract: true,
+    turns: ["Hi, I'm Lisa, 949-555-1234. What kinds of window treatments do you carry?"],
+    expect: { noContactAskBefore: 1, cta: [{ turn: 0, cta: null }], stage: 'contact_pending', singleLead: true, freshSummary: true },
+    judge: ['The customer only volunteered contact details and has not shown booking intent: it answered and learned about the project, without inviting a visit or asking for more details', J_FACTS, J_TONE],
+  },
+  {
+    id: 'wechat-booking-zh', category: '联系方式选择', title: '要上门测量，只留微信：按微信预约，不坚持要电话', lang: 'zh', extract: true,
+    turns: ['主卧想做遮光，想约个时间上门测量', '我姓李，加我微信 li_test88 就行，不太方便接电话，邮编 92618'],
+    expect: {
+      askZipOrContactAt: 0, bookingInviteAt: 0,
+      tools: [{ turn: 1, tool: 'request_consultation' }], stage: 'consultation_requested', singleLead: true, freshSummary: true, contactPreference: 'wechat',
+      mustNotMatch: [{ turn: 1, re: /(留|提供|告诉|给).{0,12}(电话|手机|号码)|phone number/, label: '客户选了微信后仍要电话' }],
+    },
+    judge: ['客户只留微信、说不方便接电话：接受微信作为联系方式并确认预约申请已提交，没有坚持要电话，也没有承诺具体日期时间', J_FACTS, J_TONE],
+  },
+  {
+    id: 'sms-booking-en', category: '联系方式选择', title: 'English: book, prefers a text message to a call', lang: 'en', extract: true,
+    turns: ['We want to book an in-home consultation for our living room shades', "I'm Tom, 949-555-0199, ZIP 92660. Please text me instead of calling."],
+    expect: { tools: [{ turn: 1, tool: 'request_consultation' }], stage: 'consultation_requested', singleLead: true, freshSummary: true, contactPreference: 'sms' },
+    judge: ['Accepted that the customer prefers a text message and confirmed the request without promising a specific date or time', J_FACTS, J_TONE],
+  },
+  {
+    id: 'human-wechat-zh', category: '联系方式选择', title: '要真人、只留微信：转人工，不再要电话', lang: 'zh', extract: true,
+    turns: ['我想找真人顾问聊聊，加我微信 wang_test2'],
+    expect: { tools: [{ turn: 0, tool: 'request_human' }], stage: 'handed_to_human', singleLead: true, freshSummary: true, noPersonalAskAt: [0], noOwnContactAt: [0] },
+    judge: ['确认会有顾问通过微信联系，没有再索要电话或邮箱，没有承诺具体回复时间', J_TONE],
   },
 
   /* ---------------- 线索流程 ---------------- */

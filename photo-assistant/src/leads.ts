@@ -2,12 +2,22 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { config } from './config.js';
-import { ntfyNotify, type Notifier } from './notify.js';
+import { leadNotify, ntfyNotify, type Notifier } from './notify.js';
 
 /** Lead pipeline, forward-only for the agent (staff may set any stage by hand). */
-export const STAGES = ['new', 'qualified', 'consultation_requested', 'handed_to_human'] as const;
+export const STAGES = ['new', 'contact_pending', 'qualified', 'consultation_requested', 'handed_to_human'] as const;
 export type Stage = (typeof STAGES)[number];
-export const STAGE_LABEL_ZH: Record<Stage, string> = { new: '新线索', qualified: '已确认需求', consultation_requested: '申请预约咨询', handed_to_human: '转人工' };
+export const STAGE_LABEL_ZH: Record<Stage, string> = { new: '新线索', contact_pending: '有联系方式、待跟进', qualified: '已确认需求', consultation_requested: '申请预约咨询', handed_to_human: '转人工' };
+
+/** How the customer wants to be reached; the customer chooses, none is required. */
+export const CONTACT_PREFERENCES = ['phone', 'sms', 'email', 'wechat'] as const;
+export type ContactPreference = (typeof CONTACT_PREFERENCES)[number];
+export const CONTACT_PREFERENCE_ZH: Record<ContactPreference, string> = { phone: '电话', sms: '短信', email: '邮件', wechat: '微信' };
+/** The contact field each preferred method needs (a call or a text both need the phone number). */
+export const PREFERENCE_FIELD: Record<ContactPreference, 'phone' | 'email' | 'wechat'> = { phone: 'phone', sms: 'phone', email: 'email', wechat: 'wechat' };
+export function contactPreference(v: unknown): ContactPreference | undefined {
+  return typeof v === 'string' && (CONTACT_PREFERENCES as readonly string[]).includes(v) ? (v as ContactPreference) : undefined;
+}
 
 export const SALES_SOURCE = 'AI Sales Agent';
 
@@ -25,12 +35,15 @@ export interface Lead {
   language: 'zh' | 'en';
   stage?: Stage;
   stage_history?: { stage: Stage; at: string; by: 'agent' | 'staff' }[];
-  /** Stages a push notification was already sent for (each stage pushes at most once). */
+  /** Stages a push notification was delivered for (each stage pushes at most once). */
   notified?: Stage[];
+  /** Last failed push: the stage stays out of `notified`, so it is retried (next update or the periodic retry). */
+  notify_error?: { stage: Stage; first_at: string; last_at: string; attempts: number; error: string };
   name?: string;
   phone?: string;
   email?: string;
   wechat?: string;
+  contact_preference?: ContactPreference;
   city?: string;
   zip?: string;
   /** true when the ZIP starts with a configured service prefix (preliminary signal only). */
@@ -75,7 +88,8 @@ async function writeLead(lead: Lead): Promise<void> {
 }
 
 function contactLine(l: Lead): string {
-  return [l.phone, l.email, l.wechat && `WeChat ${l.wechat}`].filter(Boolean).join(' · ');
+  const line = [l.phone, l.email, l.wechat && `WeChat ${l.wechat}`].filter(Boolean).join(' · ');
+  return l.contact_preference ? `${line}（首选${CONTACT_PREFERENCE_ZH[l.contact_preference]}）` : line;
 }
 
 /** Legacy assistant: saves a lead that already has contact details (always a human follow-up). */
@@ -86,7 +100,8 @@ export async function saveLead(input: Omit<Lead, 'id' | 'createdAt'>, notify: No
   lead.stage_history ??= [{ stage: lead.stage!, at: lead.createdAt, by: 'agent' }];
   lead.notified ??= [lead.stage!];
   await writeLead(lead);
-  await notify('SMORI 网站新咨询', `${lead.name || '（未留姓名）'} · ${contactLine(lead)}\n${lead.interest || lead.notes || ''}${lead.city ? ` · ${lead.city}` : ''}`, `${config.appUrl}/#leads`).catch(() => undefined);
+  await notify('SMORI 网站新咨询', `${lead.name || '（未留姓名）'} · ${contactLine(lead)}\n${lead.interest || lead.notes || ''}${lead.city ? ` · ${lead.city}` : ''}`, `${config.appUrl}/#leads`)
+    .catch((e) => console.error(`lead push failed: ${lead.id}: ${(e as Error).message}`));
   return lead;
 }
 
@@ -110,25 +125,32 @@ async function readLead(id: string): Promise<Lead> {
   return normalizeLead(JSON.parse(await fs.readFile(path.join(dir(), `${path.basename(id)}.json`), 'utf8')) as Lead);
 }
 
+/** Staff edits take the conversation's lock too, so an agent update or a push in flight cannot overwrite them. */
+async function staffUpdate(id: string, fn: (lead: Lead) => void): Promise<Lead> {
+  const { conversationId } = await readLead(id);
+  return withLock(conversationId, async () => {
+    const lead = await readLead(id);
+    fn(lead);
+    await writeLead(lead);
+    return lead;
+  });
+}
+
 export async function markLead(id: string, handled: boolean): Promise<void> {
-  const lead = await readLead(id);
-  lead.handled = handled;
-  lead.updatedAt = new Date().toISOString();
-  await writeLead(lead);
+  await staffUpdate(id, (lead) => { lead.handled = handled; lead.updatedAt = new Date().toISOString(); });
 }
 
 /** Staff override: any stage, any direction. */
 export async function setLeadStage(id: string, stage: Stage): Promise<Lead> {
   if (!STAGES.includes(stage)) throw new Error(`unknown stage ${stage}`);
-  const lead = await readLead(id);
-  const at = new Date().toISOString();
-  if (lead.stage !== stage) {
-    lead.stage = stage;
-    lead.stage_history = [...(lead.stage_history ?? []), { stage, at, by: 'staff' }];
-  }
-  lead.updatedAt = at;
-  await writeLead(lead);
-  return lead;
+  return staffUpdate(id, (lead) => {
+    const at = new Date().toISOString();
+    if (lead.stage !== stage) {
+      lead.stage = stage;
+      lead.stage_history = [...(lead.stage_history ?? []), { stage, at, by: 'staff' }];
+    }
+    lead.updatedAt = at;
+  });
 }
 
 const rank = (s: Stage | undefined | null) => (s ? STAGES.indexOf(s) : -1);
@@ -142,9 +164,11 @@ export interface StageSignals { consultation?: boolean; human?: boolean }
 
 /**
  * Deterministic stage rules:
- *  new                    any qualification info (room, need, size, ZIP, budget…) or a contact method
- *  qualified              contact (phone/email/WeChat) + room type or primary need
- *  consultation_requested contact + the customer agreed to book (button, form or in chat)
+ *  new                    qualification info only (room, need, size, ZIP, budget…), no way to reach the customer
+ *  contact_pending        a contact method (phone/email/WeChat) but no room / need and no booking or person request yet:
+ *                         reachable, NOT a confirmed need or buying intent
+ *  qualified              contact + room type or primary need
+ *  consultation_requested contact + the customer explicitly asked for / agreed to a consultation, visit or measurement
  *  handed_to_human        contact + the customer asked for a person (转人工) or the agent could not help
  * Without a contact method nobody can follow up, so a booking / human request is
  * remembered (consultation_interest / wants_human) and takes effect as soon as contact arrives.
@@ -154,7 +178,8 @@ export function computeStage(l: Partial<Lead>, signals: StageSignals = {}): Stag
   if (contact && (signals.human || l.wants_human)) return 'handed_to_human';
   if (contact && (signals.consultation || l.consultation_interest === 'yes')) return 'consultation_requested';
   if (contact && (l.room_type || l.primary_need)) return 'qualified';
-  if (contact || hasQualification(l)) return 'new';
+  if (contact) return 'contact_pending';
+  if (hasQualification(l)) return 'new';
   return null;
 }
 
@@ -200,7 +225,7 @@ export function stripStatusClaims(text: string): string {
 
 /** Deterministic status line from the current lead fields. */
 export function leadStatusLine(l: Lead): string {
-  const got = [l.name && `姓名 ${l.name}`, l.phone && `电话 ${l.phone}`, l.email && `邮箱 ${l.email}`, l.wechat && `微信 ${l.wechat}`].filter(Boolean);
+  const got = [l.name && `姓名 ${l.name}`, l.phone && `电话 ${l.phone}`, l.email && `邮箱 ${l.email}`, l.wechat && `微信 ${l.wechat}`, l.contact_preference && `首选${CONTACT_PREFERENCE_ZH[l.contact_preference]}`].filter(Boolean);
   const contact = hasContact(l) ? `联系信息：${got.join('、')}` : `联系信息：${l.name ? `姓名 ${l.name}，` : ''}尚未留下电话或邮箱`;
   const zip = l.zip ? `ZIP ${l.zip}（${l.zip_in_area ? 'OC 常规服务区' : '服务范围待团队确认'}）` : '';
   const stage = l.stage ? `阶段：${STAGE_LABEL_ZH[l.stage]}${l.preferred_time ? `，希望时间 ${l.preferred_time}` : ''}` : '';
@@ -212,11 +237,37 @@ export function composeSummary(l: Lead): string {
   return [stripStatusClaims(l.needs_summary ?? ''), leadStatusLine(l)].filter(Boolean).join('\n');
 }
 
-const PUSH_TITLE: Record<Stage, string> = { new: '', qualified: 'SMORI 销售线索：已确认需求', consultation_requested: 'SMORI 销售线索：申请预约咨询', handed_to_human: 'SMORI 销售线索：转人工' };
+const PUSH_TITLE: Record<Stage, string> = { new: '', contact_pending: 'SMORI 销售线索：有联系方式、待跟进', qualified: 'SMORI 销售线索：已确认需求', consultation_requested: 'SMORI 销售线索：申请预约咨询', handed_to_human: 'SMORI 销售线索：转人工' };
 
 function pushBody(l: Lead): string {
   const facts = [l.room_type, l.window_count && `${l.window_count} 扇窗`, l.primary_need, l.motorization_interest && `电动：${l.motorization_interest}`, l.zip && `ZIP ${l.zip}${l.zip_in_area ? '（OC）' : ''}`, l.preferred_time && `时间：${l.preferred_time}`].filter(Boolean).join(' · ');
-  return `${l.name || '（未留姓名）'} · ${contactLine(l)}\n${facts}${l.summary ? `\n${l.summary}` : ''}`.slice(0, 900);
+  const hint = l.stage === 'contact_pending' ? '客户留了联系方式，还没谈需求，也没要求预约。' : '';
+  return `${l.name || '（未留姓名）'} · ${contactLine(l)}\n${[hint, facts].filter(Boolean).join('\n')}${l.summary ? `\n${l.summary}` : ''}`.slice(0, 900);
+}
+
+/** A push is due when the current stage (from contact_pending on) is higher than every stage already delivered. */
+export function pushDue(l: Pick<Lead, 'stage' | 'notified'>): boolean {
+  const { stage } = l;
+  if (!stage || stage === 'new') return false;
+  const notified = l.notified ?? [];
+  return !notified.includes(stage) && rank(stage) > Math.max(-1, ...notified.map(rank));
+}
+
+/** Sends the push for the lead's current stage. Only a delivered push is recorded in `notified`; a failure is recorded in `notify_error` and retried later. */
+async function deliverPush(lead: Lead, notify: Notifier, at: string): Promise<boolean> {
+  const stage = lead.stage!;
+  try {
+    await notify(PUSH_TITLE[stage], pushBody(lead), `${config.appUrl}/#leads`);
+    lead.notified = [...new Set([...(lead.notified ?? []), stage])];
+    delete lead.notify_error;
+    return true;
+  } catch (e) {
+    const prev = lead.notify_error?.stage === stage ? lead.notify_error : undefined;
+    const error = String((e as Error)?.message ?? e).slice(0, 200);
+    lead.notify_error = { stage, first_at: prev?.first_at ?? at, last_at: at, attempts: (prev?.attempts ?? 0) + 1, error };
+    console.error(`lead push failed: ${lead.id} stage=${stage} attempt=${lead.notify_error.attempts}: ${error}`);
+    return false;
+  }
 }
 
 /** Serialize writes per conversation (the chat reply, the extractor and the form can race). */
@@ -246,11 +297,13 @@ export interface UpsertOptions { notify?: Notifier; now?: () => Date; signals?: 
 /**
  * One lead per sales conversation. Creates it once there is something worth keeping
  * (stage "new" or better), advances the stage forward only, and pushes once per stage
- * from "qualified" on. Returns null when there is nothing to save yet.
+ * from "contact_pending" on. The lead is written before the push, so a failed push never
+ * loses it; the push is retried on the next update or by retryFailedPushes.
+ * Returns null when there is nothing to save yet.
  */
 export function upsertConversationLead(conversationId: string, patch: LeadPatch, opts: UpsertOptions = {}): Promise<Lead | null> {
   return withLock(conversationId, async () => {
-    const notify = opts.notify ?? ntfyNotify;
+    const notify = opts.notify ?? leadNotify;
     const now = (opts.now ?? (() => new Date()))();
     const at = now.toISOString();
     const existing = await findConversationLead(conversationId);
@@ -282,13 +335,44 @@ export function upsertConversationLead(conversationId: string, patch: LeadPatch,
     merged.needs_summary = stripStatusClaims(merged.needs_summary ?? '');
     merged.summary = composeSummary(merged); // always rebuilt from the latest state, before any push
 
-    const notified = new Set(merged.notified ?? []);
-    const shouldPush = stage !== 'new' && !notified.has(stage) && rank(stage) > Math.max(-1, ...[...notified].map(rank));
-    if (shouldPush) { notified.add(stage); merged.notified = [...notified]; }
     await writeLead(merged);
-    if (shouldPush) await notify(PUSH_TITLE[stage], pushBody(merged), `${config.appUrl}/#leads`).catch(() => undefined);
+    if (pushDue(merged)) {
+      await deliverPush(merged, notify, at);
+      await writeLead(merged);
+    }
     return merged;
   });
+}
+
+/**
+ * Retries pushes that failed (leads flagged with notify_error), e.g. after an ntfy outage or a
+ * restart. Runs periodically from the server; gives up `maxAgeHours` after the first failure
+ * (the lead keeps its failure flag in the admin page).
+ */
+export async function retryFailedPushes(opts: { notify?: Notifier; now?: () => Date; maxAgeHours?: number } = {}): Promise<{ retried: number; delivered: number }> {
+  const notify = opts.notify ?? leadNotify;
+  const now = (opts.now ?? (() => new Date()))();
+  const maxAgeMs = (opts.maxAgeHours ?? 48) * 3_600_000;
+  let retried = 0;
+  let delivered = 0;
+  for (const l of await listLeads(100_000)) {
+    if (!l.notify_error || !pushDue(l) || now.getTime() - Date.parse(l.notify_error.first_at) > maxAgeMs) continue;
+    retried++;
+    const ok = await withLock(l.conversationId, async () => {
+      const fresh = await readLead(l.id);
+      if (!fresh.notify_error || !pushDue(fresh)) return false;
+      const sent = await deliverPush(fresh, notify, now.toISOString());
+      await writeLead(fresh);
+      return sent;
+    });
+    if (ok) delivered++;
+  }
+  return { retried, delivered };
+}
+
+/** Leads whose latest push has not been delivered (shown in the admin page). */
+export function pushPending(l: Lead): boolean {
+  return Boolean(l.notify_error) && pushDue(l);
 }
 
 export function zipInServiceArea(zip: string, prefixes = config.serviceZipPrefixes): boolean {
@@ -296,7 +380,7 @@ export function zipInServiceArea(zip: string, prefixes = config.serviceZipPrefix
   return /^\d{5}(-\d{4})?$/.test(z) && prefixes.some((p) => z.startsWith(p));
 }
 
-const CSV_COLUMNS = ['id', 'createdAt', 'updatedAt', 'stage', 'lead_source', 'name', 'phone', 'email', 'wechat', 'zip', 'zip_in_area', 'city', 'room_type', 'window_count', 'approximate_size', 'primary_need', 'motorization_interest', 'budget_range', 'products_recommended', 'consultation_interest', 'preferred_time', 'summary', 'notes', 'language', 'handled', 'page_url', 'utm'] as const;
+const CSV_COLUMNS = ['id', 'createdAt', 'updatedAt', 'stage', 'lead_source', 'name', 'phone', 'email', 'wechat', 'contact_preference', 'zip', 'zip_in_area', 'city', 'room_type', 'window_count', 'approximate_size', 'primary_need', 'motorization_interest', 'budget_range', 'products_recommended', 'consultation_interest', 'preferred_time', 'summary', 'notes', 'language', 'handled', 'page_url', 'utm'] as const;
 
 export function leadsToCsv(leads: Lead[]): string {
   const cell = (v: unknown) => {
