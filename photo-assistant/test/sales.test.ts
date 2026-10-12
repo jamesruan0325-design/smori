@@ -54,7 +54,9 @@ test('stage rules (deterministic)', () => {
   assert.equal(computeStage({ room_type: 'bedroom', consultation_interest: 'yes' }), 'new', 'booking needs a contact method');
   assert.equal(computeStage({ phone: '9495551234' }, { consultation: true }), 'consultation_requested');
   assert.equal(computeStage({ phone: '9495551234', wants_human: true }), 'handed_to_human');
-  assert.equal(computeStage({ wants_human: true }), null, 'human request without contact or info: nothing to save');
+  assert.equal(computeStage({ wants_human: true }), 'new', 'a person request is kept until contact arrives');
+  assert.equal(computeStage({ consultation_interest: 'yes' }), 'new', 'a booking request is kept until contact arrives');
+  assert.equal(computeStage({ consultation_interest: 'no' }), null, 'nothing to save');
 });
 
 test('one lead per conversation; stages advance forward only; one push per stage from qualified on', async () => {
@@ -427,7 +429,9 @@ test('talking to a person: ask for the customer\'s contact instead of giving our
   assert.match(noContactResult.content, /Do not give our phone number or email/);
   assert.doesNotMatch(noContactResult.content, /949|BonnieX/i, 'our phone/email are not handed to the model to repeat');
   assert.equal(r.cta, 'human_form');
-  assert.equal((await getConversationLead('conv-human-ask-01'))?.wants_human ?? null, null, 'nothing to save yet without info or contact');
+  const remembered = await getConversationLead('conv-human-ask-01');
+  assert.equal(remembered!.wants_human, true, 'the request is kept (stage new, no push) until contact arrives');
+  assert.equal(remembered!.stage, 'new');
 
   // contact given: handed over; the confirmation does not suggest calling us or re-asking
   const { pushes, notify } = recorder();

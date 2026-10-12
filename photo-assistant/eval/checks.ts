@@ -96,13 +96,16 @@ const CONTACT_REQUEST_RE = /(how (should|may) (we|i) (address|call) you|where (s
 const OWN_CONTACT_RE = /(949\D{0,3}880\D{0,3}1322|BonnieX@|致电|call us|打电话给我们|拨打)/i;
 // Phone / email named as a CHANNEL ("电话沟通时", "顾问会电话联系您", "over the phone", "we'll call you"),
 // not a request for the customer's details. Removed before looking for a contact request.
-const CHANNEL_RE = /(电话(沟通|联系(?!方式)|交流|里|中(?!间)|回访|讨论)|(打|通|回)电话|致电|拨打|over the phone|on the phone|by phone|phone (call|conversation|consultation)|(call|email|e-mail|text) you\b)/gi;
+const CHANNEL_RE = /(电话(沟通|联系(?!方式)|交流|里|中(?!间)|回访|讨论)|(打|通|回)电话|致电|拨打|over the phone|on the phone|by phone|phone (call|conversation|consultation)|(call|email|e-mail|text) you\b|(通过|用|在|走)微信\s*[A-Za-z0-9_-]*\s*(联系|沟通|发|和|给|跟|告诉)|加(您|你)的?微信|微信(联系|沟通)(?!方式)|(on|via|by|through) wechat|message you on wechat)/gi;
+// Acknowledging details the customer already gave ("感谢您留下电话", "电话已经记下了", "thanks for your number"): not a request.
+const ACK_RE = /((感谢|谢谢)(您|你)?的?(留下|提供|告诉我?|发来|分享)了?的?(您的|你的)?(电话|号码|手机号?|邮箱|微信号?|联系方式|称呼|姓名)|(您的|你的)?(电话|号码|手机号?|邮箱|微信号?|联系方式)我?(已经?|都)?(记下|收到|登记|记录)了?|已经?(记下|收到|登记|记录)了?(您的|你的)?(电话|号码|手机号?|邮箱|微信号?|联系方式)|(thanks|thank you) for (sharing|leaving|providing|giving)?\s*(your|the) (number|phone( number)?|email( address)?|details|contact( details| info)?)|(i|we)(?:'ve| have) (noted |got )?your (number|phone( number)?|email( address)?|details|contact( details| info)?)|(got|noted) your (number|phone|email|details))/gi;
 
 /** What the reply asks the customer for: their ZIP code and/or contact details (name, phone, email, WeChat). */
 export function contactAsks(reply: string): { zip: boolean; contact: boolean } {
   let zip = false;
   let contact = false;
-  for (const s of sentences(reply)) {
+  for (const raw of sentences(reply)) {
+    const s = raw.replace(ACK_RE, ' ');
     if (!ASK_CUE_RE.test(s)) continue;
     if (ZIP_RE.test(s)) zip = true;
     // "you can also call us at (949) 880-1322" gives OUR contact; only count it when it also asks for theirs

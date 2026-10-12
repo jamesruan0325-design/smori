@@ -97,13 +97,13 @@ export function applyChecks(sc: Scenario, turns: TurnRecord[], lead: LeadLike, l
   if (e.noContactAskBefore !== undefined) {
     for (let i = 0; i < Math.min(e.noContactAskBefore, turns.length); i++) {
       const a = contactAsks(at(i).reply);
-      add('购买意向前不索要邮编/联系方式', !a.zip && !a.contact, a.zip || a.contact ? clip(sentences(at(i).reply).filter((s) => /邮编|ZIP|电话|邮箱|姓名|称呼|phone|email|name/i.test(s)).join(' ')) : undefined, i);
+      add('购买意向前不索要邮编/联系方式', !a.zip && !a.contact, a.zip || a.contact ? clip(sentences(at(i).reply).filter((s) => /邮编|ZIP|电话|邮箱|微信|姓名|称呼|phone|email|wechat|name/i.test(s)).join(' ')) : undefined, i);
     }
   }
   for (const i of e.noPersonalAskAt ?? []) if (at(i)) add('不追问姓名/电话/邮箱', !contactAsks(at(i).reply).contact, undefined, i);
   for (const i of e.askPersonalAt ?? []) if (at(i)) {
     const ok = contactAsks(at(i).reply).contact;
-    add('询问客户姓名/电话（或邮箱）', ok, ok ? undefined : clip(at(i).reply), i);
+    add('询问客户姓名/联系方式', ok, ok ? undefined : clip(at(i).reply), i);
   }
   for (const i of e.noOwnContactAt ?? []) if (at(i)) {
     const m = at(i).reply.match(OUR_CONTACT_RE);

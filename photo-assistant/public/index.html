@@ -99,14 +99,17 @@ async function loadHealth() {
     ` &nbsp;|&nbsp; 通知: <b class="${health.auto.notify?'ok':'warn'}">${health.auto.notify ? 'ntfy 已配置' : '未配置 NTFY_TOPIC'}</b>` +
     (health.auto.notify ? ` <button class="btn small" onclick="api('/api/notify/test',{method:'POST',body:{}}).then(r=>alert('已发送，消息 ID '+r.id+'。手机几秒内应收到。')).catch(e=>alert('发送失败：'+e.message))">发送测试通知</button>` : '') +
     ` <button class="btn small" onclick="api('/api/notify/test-lead',{method:'POST',body:{}}).then(r=>alert('已发送「SMORI 销售线索：测试推送」，消息 ID '+r.id+'。请确认负责跟进线索的手机收到。')).catch(e=>alert('发送失败：'+e.message))">发送线索测试推送</button>` +
-    (health.leads ? ` &nbsp;|&nbsp; 线索推送: <b class="${health.leads.pushPending?'err':'ok'}">${health.leads.pushPending ? health.leads.pushPending + ' 条没送达，每 5 分钟自动重试' : '正常'}</b>` : '') +
+    (health.leads ? ` &nbsp;|&nbsp; 线索推送: <b class="${health.leads.pushRetrying||health.leads.pushGaveUp?'err':'ok'}">${[health.leads.pushRetrying && health.leads.pushRetrying + ' 条没送达，每 5 分钟自动重试', health.leads.pushGaveUp && health.leads.pushGaveUp + ' 条超过 48 小时没送达，已停止重试，请在线索里手动跟进'].filter(Boolean).join('；') || '正常'}</b>` : '') +
     rateLimitLine(health.assistant && health.assistant.rateLimit);
 }
-/* rate-limit self-check: the limiter must count each shopper separately, not one shared Shopify address */
+/* rate-limit self-check: the limiter must count each shopper separately, not one shared address (see docs/09) */
 function rateLimitLine(r) {
   if (!r || !r.requests) return ' &nbsp;|&nbsp; 限流自检: <b>最近 24 小时还没有聊天请求</b>';
-  const shared = (r.how && r.how['conversation (no visitor IP)']) || (r.requests >= 10 && r.visitors === 1 && r.conversations > 3);
-  return ` &nbsp;|&nbsp; 限流自检（24 小时）: <b class="${shared?'err':'ok'}">${r.requests} 次请求，${r.visitors} 个访客，${r.conversations} 段对话${shared ? '：没拿到访客 IP，请告诉开发' : ''}</b>`;
+  const odd = Object.entries(r.shapes || {}).filter(([k]) => k !== 'shopper-only').map(([k, n]) => `${k} ${n}`);
+  const shared = (r.how && r.how['conversation (no visitor IP)']) || r.maxConversationsPerVisitor > 5;
+  const bad = shared || odd.length;
+  return ` &nbsp;|&nbsp; 限流自检（24 小时）: <b class="${bad?'err':'ok'}">${r.requests} 次请求，${r.visitors} 个访客，${r.conversations} 段对话，单个访客最多 ${r.maxConversationsPerVisitor} 段对话` +
+    `${odd.length ? '；请求头格式异常：' + esc(odd.join('，')) : ''}${shared ? '：访客 IP 可能取错了' : ''}${bad ? '，请告诉开发' : ''}</b>`;
 }
 async function autoRun() { try { const r = await api('/api/auto/run', {method:'POST', body:{}}); alert(`同步完成：新照片 ${r.pulled}，加入案例 ${r.added}，丢弃 ${r.discarded}，完成案例 ${r.finalized.length}${r.errors.length ? '\n错误：' + r.errors.join('\n') : ''}`); loadHealth(); loadProjects(); if (current) openProject(current.id); } catch (e) { alert(e.message); } }
 const AUTO_LABEL = { collecting: '收集中', processing: '处理中', review: '草稿待发布', published: '已发布', error: '出错' };
@@ -157,7 +160,8 @@ async function loadLeadsCount() { try { const l = await api('/api/leads'); const
 function leadField(label, v) { return v ? `<div><span style="color:var(--muted)">${label}</span> ${esc(Array.isArray(v) ? v.join(', ') : v)}</div>` : ''; }
 function leadCard(l) {
   const contact = ([l.phone, l.email, l.wechat && '微信 '+l.wechat].filter(Boolean).map(esc).join(' · ') + (l.contact_preference ? ` <span style="color:var(--gold)">（首选${esc(PREF_ZH[l.contact_preference]||l.contact_preference)}）</span>` : '')) || '<span style="color:var(--muted)">（还没有联系方式）</span>';
-  const pushFail = l.notify_error && !(l.notified||[]).includes(l.stage) ? `<span class="badge" style="border-color:#e07070;color:#e07070" title="${esc(l.notify_error.error||'')}">推送没送达（${l.notify_error.attempts} 次）</span>` : '';
+  const pp = l.push_pending || {};
+  const pushFail = l.push_status ? `<span class="badge" style="border-color:#e07070;color:#e07070" title="${esc(pp.last_error||'')}">${l.push_status === 'gave_up' ? '推送没送达，已停止重试' : `推送没送达（${pp.attempts||0} 次），自动重试中`}</span>` : '';
   const stageSel = `<select onchange="api('/api/leads/${l.id}/stage',{method:'POST',body:{stage:this.value}}).then(()=>showLeads())" style="width:auto;padding:4px 8px;font-size:12px">${STAGES.map(([v,t]) => `<option value="${v}" ${l.stage===v?'selected':''}>${t}</option>`).join('')}</select>`;
   return `<div class="panel" style="border-color:${l.handled?'var(--line)':'var(--gold)'}">
     <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">

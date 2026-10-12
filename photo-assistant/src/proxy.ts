@@ -4,6 +4,7 @@
  *   -> Shopify  https://smori-photo-assistant.fly.dev/proxy/<x>?shop=&path_prefix=&timestamp=&signature=
  */
 import crypto from 'node:crypto';
+import net from 'node:net';
 import type { Request, Response, NextFunction } from 'express';
 import { config } from './config.js';
 import { chatTurn, detectLanguage, logExchange, offlineReply, type ChatMessage } from './chat.js';
@@ -25,56 +26,98 @@ export function proxyAuth(req: Request, res: Response, next: NextFunction): void
   if (!config.apiSecret || !verifyProxySignature(req.query as Record<string, unknown>)) { res.status(401).json({ error: 'invalid proxy signature' }); return; }
   const ts = Number(req.query.timestamp);
   if (!ts || Math.abs(Date.now() / 1000 - ts) > 15 * 60) { res.status(401).json({ error: 'stale request' }); return; }
+  res.locals.proxySigned = true; // the request really came through Shopify's App Proxy
   next();
 }
 
 /* simple sliding-window limiter per client IP */
 const hits = new Map<string, number[]>();
+let sweepCounter = 0;
 export function rateLimited(key: string, limit = config.chatRatePerHour, now = Date.now()): boolean {
   const windowStart = now - 3_600_000;
+  if (++sweepCounter % 500 === 0) for (const [k, arr] of hits) if (!arr.some((t) => t > windowStart)) hits.delete(k); // drop idle keys
   const arr = (hits.get(key) ?? []).filter((t) => t > windowStart);
   if (arr.length >= limit) { hits.set(key, arr); return true; }
   arr.push(now);
   hits.set(key, arr);
   return false;
 }
+/** One address form for comparisons: no IPv6 brackets, no IPv4 port, no ::ffff: prefix, lower case. */
+export function normalizeIp(v: string): string {
+  let t = v.trim().toLowerCase();
+  const bracket = t.match(/^\[([^\]]+)\](?::\d+)?$/);
+  if (bracket) t = bracket[1];
+  const v4port = t.match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/);
+  if (v4port) t = v4port[1];
+  if (t.startsWith('::ffff:') && net.isIPv4(t.slice(7))) t = t.slice(7);
+  return t;
+}
+
+/** IPv6 visitors are counted per /64 (one household or one server can rotate through a whole /64). */
+function limitKey(ip: string): string {
+  if (!net.isIPv6(ip)) return ip;
+  const [head, tail = ''] = ip.split('::');
+  const h = head ? head.split(':') : [];
+  const tl = tail ? tail.split(':') : [];
+  const full = ip.includes('::') ? [...h, ...Array(8 - h.length - tl.length).fill('0'), ...tl] : h;
+  return `${full.slice(0, 4).map((x) => x.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
 /**
  * Rate-limit key for the storefront visitor behind a request.
- * Shopify's App Proxy sends the shopper's IP in X-Forwarded-For ("Authenticate app proxies" on
- * shopify.dev); Fly's proxy then appends the address it received the request from (Shopify's,
- * also sent as Fly-Client-IP) and the app's own address (the rightmost entry). The visitor is
- * therefore the entry just before Fly-Client-IP; entries further left could have been sent by
- * the visitor and are not trusted. If the only address left is Shopify's own, every shopper
- * would share one counter, so the conversation is counted instead. Unsigned requests (only
- * possible with PROXY_SIGNATURE_OPTIONAL, for local testing) use the connecting address.
+ * Shopify's App Proxy sets X-Forwarded-For to the shopper's IP ("Authenticate app proxies" on
+ * shopify.dev: "X-Forwarded-For: The client IP address"); Fly's proxy then appends the address
+ * it received the request from (Shopify's, also sent as Fly-Client-IP) and the app's own
+ * address. So the first entry is the shopper (as before this change). If the first entry is
+ * missing or is Shopify's own address, every shopper would share one counter, so the
+ * conversation is counted instead (with a global cap). Unsigned requests (only possible with
+ * PROXY_SIGNATURE_OPTIONAL, for local testing) use the connecting address.
+ * `shape` records how the header looked, for the self-check in the admin page: "shopper-only"
+ * means Shopify sent exactly one address, as documented.
  */
-export function clientKey(headers: Record<string, unknown>, signed: boolean, conversationId: string, fallback = 'unknown'): { key: string; how: string; entries: number } {
-  const xff = String(headers['x-forwarded-for'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  const fly = String(headers['fly-client-ip'] ?? '').trim();
+export function clientKey(headers: Record<string, unknown>, signed: boolean, conversationId: string, fallback = 'unknown'): { key: string; how: string; shape: string; entries: number } {
+  const xff = String(headers['x-forwarded-for'] ?? '').split(',').map(normalizeIp).filter(Boolean);
+  const fly = normalizeIp(String(headers['fly-client-ip'] ?? ''));
   const entries = xff.length;
-  if (!signed) return { key: fly || xff[0] || fallback, how: fly ? 'fly-client-ip' : entries ? 'xff-first' : 'socket', entries };
-  const i = fly ? xff.lastIndexOf(fly) : -1;
-  const [key, how] = i > 0 ? [xff[i - 1], 'before-fly-client-ip'] : entries >= 2 ? [xff[entries - 2], 'second-last'] : [xff[0] ?? '', 'only-entry'];
-  if (!key || key === fly) return { key: `conv:${conversationId}`, how: 'conversation (no visitor IP)', entries };
-  return { key, how, entries };
+  const flyAt = fly ? xff.lastIndexOf(fly) : -1;
+  const shape = !entries ? 'no-xff' : flyAt < 0 ? 'fly-ip-not-in-xff' : flyAt === 1 ? 'shopper-only' : flyAt === 0 ? 'no-shopper' : 'extra-before-shopify';
+  if (!signed) return { key: limitKey(fly || xff[0] || normalizeIp(fallback)), how: fly ? 'fly-client-ip' : entries ? 'xff-first' : 'socket', shape, entries };
+  const first = xff[0] ?? '';
+  if (!first || first === fly) return { key: `conv:${conversationId}`, how: 'conversation (no visitor IP)', shape, entries };
+  return { key: limitKey(first), how: 'xff-first', shape, entries };
 }
 
 /* In-memory sample of how keys were derived, for the admin page (salted hashes only; no IPs kept). */
 const keySalt = crypto.randomBytes(16);
-const keySamples: { at: number; how: string; entries: number; key: string; conv: string }[] = [];
+const keySamples: { at: number; how: string; shape: string; entries: number; key: string; conv: string }[] = [];
 const hashed = (v: string) => crypto.createHash('sha256').update(keySalt).update(v).digest('hex').slice(0, 12);
-function visitorKey(req: Request, conversationId: string): string {
-  const r = clientKey(req.headers as Record<string, unknown>, typeof req.query?.signature === 'string', conversationId, req.ip || 'unknown');
-  keySamples.push({ at: Date.now(), how: r.how, entries: r.entries, key: hashed(r.key), conv: hashed(conversationId) });
+function visitorKey(req: Request, res: Response, conversationId: string): string {
+  const r = clientKey(req.headers as Record<string, unknown>, res.locals?.proxySigned === true, conversationId, req.ip || 'unknown');
+  keySamples.push({ at: Date.now(), how: r.how, shape: r.shape, entries: r.entries, key: hashed(r.key), conv: hashed(conversationId) });
   if (keySamples.length > 1000) keySamples.splice(0, keySamples.length - 1000);
   return r.key;
 }
+/** Without a visitor address the per-conversation key is easy to rotate: cap those requests site-wide. */
+function limited(key: string, limit: number): boolean {
+  if (key.startsWith('conv:') && rateLimited('conv-fallback-all', 300)) return true;
+  return rateLimited(key, limit);
+}
 
-/** Last 24 h: how many distinct visitors the limiter saw vs conversations (about equal = keyed per visitor; 1 visitor for many conversations = one shared key). */
-export function rateLimitDiagnostics(now = Date.now()): { requests: number; visitors: number; conversations: number; how: Record<string, number>; xffEntries: Record<string, number> } {
+/**
+ * Last 24 h, for the admin self-check: requests, distinct visitors and conversations, the most
+ * conversations seen behind one visitor key (a shared address shows up as a large number), and
+ * the X-Forwarded-For shapes ("shopper-only" = as documented).
+ */
+export function rateLimitDiagnostics(now = Date.now()): { requests: number; visitors: number; conversations: number; maxConversationsPerVisitor: number; how: Record<string, number>; shapes: Record<string, number>; xffEntries: Record<string, number> } {
   const recent = keySamples.filter((s) => s.at > now - 86_400_000);
   const count = (f: (s: (typeof recent)[number]) => string) => recent.reduce<Record<string, number>>((m, s) => { m[f(s)] = (m[f(s)] ?? 0) + 1; return m; }, {});
-  return { requests: recent.length, visitors: new Set(recent.map((s) => s.key)).size, conversations: new Set(recent.map((s) => s.conv)).size, how: count((s) => s.how), xffEntries: count((s) => String(s.entries)) };
+  const convsPerKey = new Map<string, Set<string>>();
+  for (const s of recent) { if (!convsPerKey.has(s.key)) convsPerKey.set(s.key, new Set()); convsPerKey.get(s.key)!.add(s.conv); }
+  return {
+    requests: recent.length, visitors: convsPerKey.size, conversations: new Set(recent.map((s) => s.conv)).size,
+    maxConversationsPerVisitor: Math.max(0, ...[...convsPerKey.values()].map((c) => c.size)),
+    how: count((s) => s.how), shapes: count((s) => s.shape), xffEntries: count((s) => String(s.entries)),
+  };
 }
 
 const CONV_RE = /^[A-Za-z0-9_-]{8,64}$/;
@@ -109,9 +152,9 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
   const lang = detectLanguage(last.content);
   const sales = body.agent === 'sales';
   if (last.content.length > 1500) { res.status(400).json({ error: lang === 'zh' ? '消息太长，请精简后再发。' : 'Message too long.' }); return; }
-  if (rateLimited(visitorKey(req, conversationId))) { res.status(429).json({ reply: lang === 'zh' ? `消息有点多了，请稍后再试，或直接致电 ${BUSINESS.phone}。` : `Too many messages for now. Please try again later or call ${BUSINESS.phone}.`, language: lang, conversationId }); return; }
+  if (limited(visitorKey(req, res, conversationId), config.chatRatePerHour)) { res.status(429).json({ reply: lang === 'zh' ? `消息有点多了，请稍后再试，或直接致电 ${BUSINESS.phone}。` : `Too many messages for now. Please try again later or call ${BUSINESS.phone}.`, language: lang, conversationId }); return; }
   if (messages.filter((m) => m.role === 'user').length > config.chatMaxTurns / 2) {
-    res.json({ reply: lang === 'zh' ? `这段对话已经比较长了。为了更好地帮到您，请留下电话让顾问联系，或致电 ${BUSINESS.phone}。` : `This conversation is getting long. Please leave a phone number for our team, or call ${BUSINESS.phone}.`, language: lang, handoff: true, conversationId, ...(sales ? { cta: 'human_form' } : {}) });
+    res.json({ reply: lang === 'zh' ? `这段对话已经比较长了。为了更好地帮到您，请留下您方便的联系方式（电话、短信、邮箱或微信都可以），顾问会联系您；也可以致电 ${BUSINESS.phone}。` : `This conversation is getting long. Please leave the best way to reach you (call, text, email or WeChat) and our team will contact you, or call ${BUSINESS.phone}.`, language: lang, handoff: true, conversationId, ...(sales ? { cta: 'human_form' } : {}) });
     return;
   }
   if (sales) {
@@ -146,7 +189,7 @@ export async function handleLead(req: Request, res: Response): Promise<void> {
   const input = { name: s('name'), phone: s('phone'), email: s('email'), wechat: s('wechat'), city: s('city'), interest: s('interest'), notes: s('notes'), preferred_time: s('preferred_time') };
   if (!hasContact(input)) { res.status(400).json({ error: lang === 'zh' ? '请至少留一个电话、邮箱或微信号。' : 'Please leave a phone number, email or WeChat ID.' }); return; }
   const conversationId = typeof b.conversationId === 'string' && CONV_RE.test(b.conversationId) ? b.conversationId : 'form';
-  if (rateLimited(visitorKey(req, conversationId) + ':lead', 10)) { res.status(429).json({ error: 'too many requests' }); return; }
+  if (limited(visitorKey(req, res, conversationId) + ':lead', 10)) { res.status(429).json({ error: 'too many requests' }); return; }
   const okMessage = lang === 'zh' ? `已收到，我们的顾问会在营业时间内联系您（${BUSINESS.hours}）。急事请致电 ${BUSINESS.phone}。` : `Received. A team member will contact you during business hours (${BUSINESS.hours}). For anything urgent, call ${BUSINESS.phone}.`;
 
   // AI Sales Agent widget: "预约咨询" (kind=consultation) or "转人工" (kind=human) merge into the conversation's lead
@@ -181,7 +224,7 @@ export async function handleLead(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const lead = await saveLead({ ...input, reason: 'human', source: 'form', conversationId, language: lang });
+  const lead = await saveLead({ ...input, contact_preference: contactPreference(s('contact_preference')), reason: 'human', source: 'form', conversationId, language: lang });
   res.json({ ok: true, id: lead.id, message: okMessage });
 }
 

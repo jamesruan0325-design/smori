@@ -9,10 +9,11 @@
 - **价格**：不给任何价格、区间、单价、折扣或促销条款，客户坚持也不给；统一说明由顾问免费上门测量后报价。客户自己说的预算只记录，不评价够不够。
 - **ZIP**：聊到项目细节后才问。以 `SERVICE_ZIP_PREFIXES`（默认 926/927/928）开头的 ZIP，AI 只说"在我们的服务范围内"；其他 ZIP，或只说了城市/地址，回复"团队会确认覆盖范围"；绝不拒绝客户，也不说"不在服务范围内"，不向客户列出前缀。知识库里的服务范围说明由同一个前缀列表生成，所以知识库、查 ZIP 工具和测试评分始终一致。上门的具体日期时间由团队确认。
 - **ALTA**：知识库里没有任何已确认的 ALTA 产品、功能、价格或活动信息。客户问到时只说"顾问会在咨询时确认"，不描述 ALTA 产品。
-- **联系方式**：客户表现出购买意向后才问，包括询价、预约、上门、量尺、样品、项目时间。之后邀请预约免费上门咨询，请客户留姓名和电话或邮箱。
-- **转人工**：随时可以。客户要求真人、人工、销售或顾问，而且还没留联系方式时，AI 优先询问客户的姓名和电话（或邮箱），由 SMORI 团队主动联系，不拿店里的电话邮箱代替；已经留过联系方式的不再重复索取。只有客户明确问店里电话、邮箱、怎么联系或展厅地址时，才提供公开联系方式。
+- **联系方式**：客户表现出购买意向后才问，包括询价、预约、上门、量尺、样品、项目时间。之后邀请预约免费上门咨询，请客户留姓名和一种联系方式：电话（打电话或发短信）、邮箱或微信，由客户选，不强制某一种。客户主动先留了联系方式，AI 照常回答问题、了解需求，不因此推预约，也不再要更多信息。
+- **转人工**：随时可以。客户要求真人、人工、销售或顾问，而且还没留联系方式时，AI 询问客户的姓名和最方便的联系方式（电话、短信、邮箱或微信），由 SMORI 团队主动联系，不拿店里的电话邮箱代替；已经留过联系方式的不再重复索取。只有客户明确问店里电话、邮箱、怎么联系或展厅地址时，才提供公开联系方式。
 - 这一版**没有聊天内传照片**（计划在 v1.5）。照片助手和 Dropbox 自动流水线不受影响。
-- **没有改动** Schedule Consultation 表单（`smori-contact.liquid`）。
+- **没有改动** Schedule Consultation 表单（`smori-contact.liquid`）。它提交后只发邮件，不进线索后台（计划在后续批次接入）。
+- **隐私提示**：聊天窗底部显示一行提示（对话由 AI 处理并会被保存，用于回答问题和顾问跟进），预约 / 转人工表单的提交按钮上方显示一行联系说明。文字是建议稿、不是法律文本，可以在主题编辑器 → AI Assistant (chat) → Privacy notice 里修改或关闭；店铺的隐私政策发布后，把 `/policies/privacy-policy` 填进 Privacy policy link，提示后面才会显示链接（留空不显示）。
 
 ## 线索（lead）
 - **保存位置**：服务器 `data/leads/`（Fly 上是持久卷 `/app/data/leads/`）。
@@ -24,13 +25,14 @@
   - 推荐与意向：products_recommended（只保留知识库中的产品名）、consultation_interest、preferred_time。
   - 来源与记录：lead_source = `AI Sales Agent`、summary（中文摘要）、createdAt / updatedAt、stage_history、page（来源页面和 UTM，不含其他 URL 参数）、transcript。
 - **字段从哪来**：每次 AI 回复发出后，后台再做一次结构化提取，不会拖慢客户看到回复。
-  - 电话、邮箱、微信号、ZIP 必须是客户自己输入过的，并通过格式校验；AI 说过的号码（比如店里电话）不会被当成客户的。
-- **联系方式由客户选**：电话（打电话或发短信）、邮箱、微信任意一种都可以，不强制某一种。聊天、预约表单和转人工表单都接受只留微信；客户选了首选方式（比如"发短信"），对应的号码必须填上。AI 仍然只在客户表现出购买意向后才邀请预约、询问联系方式（规则 8 不变）。
+  - 电话、邮箱、微信号、ZIP 必须是客户自己输入过的，并通过格式校验；AI 说过的号码（比如店里电话）不会被当成客户的。微信号还要求客户提到过"微信/WeChat"、整词匹配，而且不能等于客户姓名；"微信就是手机号"这种写法也接受。
+  - 首选联系方式只在客户自己说了（"发短信给我""加我微信就行""打电话"）才记录；只留了一种联系方式不算"首选"。首选方式缺对应号码时，推送和摘要会注明（例如"首选短信，但没留电话"）。
+- **联系方式由客户选**：电话（打电话或发短信）、邮箱、微信任意一种都可以，不强制某一种。聊天、预约表单和转人工表单都接受只留微信；表单里客户选了首选方式（比如"发短信"），对应的号码必须填上。AI 仍然只在客户表现出购买意向后才邀请预约、询问联系方式（规则 8 不变）。
 - **五个阶段**（对 AI 只能往前走；员工可以在后台手动改任何阶段）：
 
 | 阶段 | 条件 | ntfy 推送 |
 |---|---|---|
-| new 新线索 | 只有项目信息（房间、需求、ZIP、预算等），还没有联系方式 | 不推送 |
+| new 新线索 | 只有项目信息（房间、需求、ZIP、预算等）或预约 / 转人工的请求，还没有联系方式 | 不推送 |
 | contact_pending 有联系方式、待跟进 | 有联系方式（电话、邮箱或微信），但还没谈房间或需求、也没要求预约或真人。**不代表有购买意向** | 推送一次 |
 | qualified 已确认需求 | 联系方式 + 房间或主要需求 | 推送一次 |
 | consultation_requested 申请预约咨询 | 联系方式 + 同意预约（聊天中、内联按钮或"预约咨询"表单） | 推送一次 |
@@ -38,46 +40,55 @@
 
   - 没有联系方式时，预约或转人工的意向会先记下来，客户一留联系方式就生效。
   - 一次跳过多个阶段时只推送最高的那个。
-  - **推送失败不会丢**：线索先保存再推送；只有推送成功才记为"已推送"。失败时线索卡片显示"推送没送达"，下一次更新这条线索时、以及服务器每 5 分钟的自动重试（最多 48 小时）会再发。推送 10 秒超时，客户不用等。
-  - 没设置 `NTFY_TOPIC` 时，销售线索的推送算失败（后台能看到），不再只写日志。
+  - **推送失败不会丢**：线索连同"待推送"标记先保存，再发推送；只有发送成功才记为"已推送"并去掉标记。推送失败，或者发送时服务器正好重启，标记都会留着：下一次更新这条线索时，以及服务器每 5 分钟的自动重试会再发（最多 48 小时，超过后卡片显示"已停止重试"，请手动跟进）。员工标记"已处理"或手动改阶段后不再重试，也不推送员工自己改的阶段。
+  - 推送最多等 5 秒：后台提取触发的推送不让客户等；客户提交预约 / 转人工表单或在聊天里预约时，ntfy 卡住的话最多多等 5 秒，推送失败不影响提交。
+  - 没设置 `NTFY_TOPIC` 时，销售线索的推送算失败（后台能看到），不再只写日志。旧版客服表单的线索也按同样规则推送和重试。
   - 后台顶部的「发送线索测试推送」发一条标题为"SMORI 销售线索：测试推送（不是真实客户）"的推送，用来确认负责跟进线索的手机能收到。
-  - 旧线索（没有阶段字段的）显示为"转人工"。
+  - 旧线索（没有阶段字段的）显示为"转人工"；以后新版本加的、当前版本不认识的阶段，在销售线索上显示为"新线索"。
+  - **回滚注意**：如果要把后端退回到没有"有联系方式、待跟进"阶段的版本（main 46c7783 及更早），旧版本会把这个阶段当成"转人工"并推送。回滚前先运行：`fly ssh console -a smori-photo-assistant -C "npm run cli -- leads-before-rollback"`，把这些线索改回"新线索"（不会再推送）。
 - **后台**：照片助手 →「网站咨询线索」。
   - 按阶段筛选，查看结构化字段、首选联系方式、摘要和对话。
-  - 顶部状态栏：线索推送是否有没送达的；"限流自检"显示最近 24 小时的请求数、访客数、对话数。访客数接近对话数说明限流按访客计算；如果只有 1 个访客对应很多对话，或提示"没拿到访客 IP"，说明限流拿到的是 Shopify 的地址，需要告诉开发。
+  - 顶部状态栏：线索推送有没有没送达的（重试中 / 已停止重试）；"限流自检"显示最近 24 小时的请求数、访客数、对话数、单个访客最多对应几段对话，以及请求头格式。正常是绿色：访客数接近对话数、单个访客最多一两段对话、请求头格式都是 shopper-only（Shopify 只发来访客一个地址）。变红并提示"请告诉开发"时，说明限流拿到的可能不是访客本人的地址。
   - 可以手动改阶段、标记已处理、导出 CSV（`/api/leads.csv`，可加 `?stage=`）。
 
 ## 文件
 - **后端**：
   - `photo-assistant/src/sales.ts`（新）：销售提示词、工具 `check_service_area`/`request_consultation`/`request_human`、线索提取与校验。
-  - `photo-assistant/src/leads.ts`：阶段、按对话合并、每个阶段只推送一次、CSV。
+  - `photo-assistant/src/leads.ts`：阶段、按对话合并、每个阶段只推送一次（待推送标记、失败重试）、CSV、回滚前降级命令。
   - `photo-assistant/src/chat.ts`：抽出共用的 Claude 调用循环，旧客服行为不变。
-  - `photo-assistant/src/proxy.ts`：`agent: "sales"` 路由、页面来源、`cta`；`/lead` 支持 `kind=consultation|human`。
+  - `photo-assistant/src/proxy.ts`：`agent: "sales"` 路由、页面来源、`cta`；`/lead` 支持 `kind=consultation|human`、微信和首选联系方式；限流按 Shopify 转发的访客地址计数（IPv6 按 /64），拿不到访客地址时按对话计数并有全站上限；限流自检数据（只存加盐哈希，不存 IP）。
   - `photo-assistant/src/knowledge.ts`：需求与方案对应、服务区说明、咨询流程、ALTA 说明。
   - `photo-assistant/src/config.ts`：`SERVICE_ZIP_PREFIXES`、`CLAUDE_LEAD_MODEL`、`CLAUDE_LEAD_EFFORT`。
   - `photo-assistant/src/server.ts`、`photo-assistant/public/index.html`：线索后台。
 - **主题**：
   - `theme/sections/smori-assistant.liquid`：新增 Mode 设置（默认仍是 Q&A assistant）和销售欢迎语。
   - `theme/assets/smori-assistant.js`、`theme/assets/smori-assistant.css`：销售模式下多了「预约咨询」按钮、内联预约按钮、带 ZIP 和时间的预约表单，以及偏向购买的快捷问题。
+  - 表单（批次 A）：打开时占满面板（聊天记录、输入框暂时隐藏，关闭后恢复），桌面和手机常见尺寸下所有字段和提交按钮都不用滚动就能看到，矮屏 / 横屏时提交按钮固定在底部；有微信栏和"首选方式"（打电话、发短信、发邮件、加微信，可不选）；提交中按钮变成"提交中…"，不能重复提交，也不能关闭或换掉表单。
+  - 隐私提示设置：`privacy_url`、`show_notice`、`notice_zh/en`、`show_consent`、`consent_zh/en`（留空用默认文字）。
   - 修复了旧 bug：标题会显示成"姓名"或"Name"。
 - **测试**：
   - `photo-assistant/test/sales.test.ts`（单元测试）。
   - `photo-assistant/test/sales-e2e.test.ts`：HTTP、真实 SDK 和本地 API 测试替身。
   - `photo-assistant/test/fake-anthropic.ts`：只用于测试，回复都带 `[test double]` 标记，不是 AI 回答。
+  - `photo-assistant/test/lead-contact.test.ts`：有联系方式、待跟进、推送失败与重试、微信与首选方式、限流访客地址。
+  - `theme/tests/widget_check.py`：离线渲染聊天组件，检查各尺寸下表单字段和提交按钮可见、防重复提交、隐私提示（需要 Playwright）。
 
 ## 测试方法
 1. **自动测试**：`cd photo-assistant && npm test`。
-   - 覆盖四个阶段、只往前走、每个阶段只推送一次、同一对话并发写入不重复。
+   - 覆盖五个阶段、只往前走、每个阶段只推送一次、推送失败 / 重启后的重试、同一对话并发写入不重复、员工改阶段不推送。
+   - 覆盖联系方式选择（电话、短信、邮箱、微信）、微信号校验、首选方式只记客户说过的、限流访客地址。
    - 覆盖 ZIP（OC 前缀和非 OC 都不拒绝）、提取结果校验、提示词中没有价格和 ALTA 内容、旧线索迁移、旧客服流程不变。
-   - 覆盖通过 HTTP 走完 new → qualified → consultation_requested → handed_to_human 的全过程。
+   - 覆盖通过 HTTP 走完 new → qualified → consultation_requested → handed_to_human 的全过程，以及只留微信的对话 → contact_pending。
+   - 聊天组件：`PW_CHROMIUM=<chromium 路径> python3 theme/tests/widget_check.py`。
 2. **在 Shopify 预览主题中真实测试**（需要先部署后端；旧的线上组件不发 `agent: "sales"`，所以部署不会改变线上行为）：
    1. `cd ~/smori-deploy && git pull && cd photo-assistant && fly deploy -a smori-photo-assistant`
-   2. 把主题推到一个**未发布**的预览主题（注意：166870188249 是**正式主题**，不能推）。推之前先用 `shopify theme list --store smori-9216.myshopify.com` 确认目标主题的 role 是 `unpublished`，再推：`shopify theme push --store smori-9216.myshopify.com --theme <未发布主题ID> --path theme --only sections/smori-assistant.liquid --only assets/smori-assistant.js --only assets/smori-assistant.css`。
+   2. 把主题推到一个**未发布**的预览主题（注意：正式主题现在是 167358857433「SMORI 正式 2026-10」，以前的 166870188249 也不能推；以 `shopify theme list` 里 role 为 `live` 的为准）。推之前先用 `shopify theme list --store smori-9216.myshopify.com` 确认目标主题的 role 是 `unpublished`，再推：`shopify theme push --store smori-9216.myshopify.com --theme <未发布主题ID> --path theme --only sections/smori-assistant.liquid --only assets/smori-assistant.js --only assets/smori-assistant.css`。
    3. 在主题编辑器 → AI Assistant (chat) → Mode 选择 "AI Sales Agent"，保存。只影响这个预览主题。
    4. 打开 `https://smori-9216.myshopify.com?preview_theme_id=<未发布主题ID>`，按下面四步聊：
 
 | 步骤 | 对话 | 预期阶段 |
 |---|---|---|
+| 0 | 另开一个对话："你好，我电话 949-xxx-xxxx，先了解一下你们做哪些产品" | contact_pending（推送"有联系方式、待跟进"；AI 只回答问题，不推预约） |
 | 1 | "主卧想要遮光，3 扇窗" | new（后台出现，无推送） |
 | 2 | "ZIP 92618，我叫王丽 949-xxx-xxxx" | qualified（推送"已确认需求"） |
 | 3 | "帮我预约，周六上午"，或点「预约免费上门咨询」按钮填表 | consultation_requested（推送） |

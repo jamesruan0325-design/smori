@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { config, PRODUCTS } from './config.js';
 import { BUSINESS, KNOWLEDGE } from './knowledge.js';
 import { detectLanguage, offlineReply, runToolLoop, trimHistory, type ChatMessage, type CreateMessage, type Lang } from './chat.js';
-import { CONTACT_PREFERENCES, contactPreference, getConversationLead, hasContact, upsertConversationLead, zipInServiceArea, type Lead, type LeadPatch, type PageContext, type StageSignals } from './leads.js';
+import { CONTACT_PREFERENCES, contactPreference, getConversationLead, type ContactPreference, hasContact, upsertConversationLead, zipInServiceArea, type Lead, type LeadPatch, type PageContext, type StageSignals } from './leads.js';
 import type { Notifier } from './notify.js';
 
 export const SALES_SYSTEM = `You are the AI sales consultant of ${BUSINESS.name} (${BUSINESS.short}), a luxury window-treatment studio in Irvine, California, chatting with visitors of ${BUSINESS.website}. Your job is to help each customer find the right solution for their home and, when they are ready, book a ${BUSINESS.consultation} with our team.
@@ -125,11 +125,29 @@ export function validEmail(s: unknown): string | undefined {
   const t = s.trim();
   return /^[^\s@<>()",;]{1,64}@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(t) && t.length <= 120 ? t : undefined;
 }
-/** A WeChat ID (or the number used as one) as the customer typed it, without a leading "微信:" label. */
+/**
+ * A WeChat ID as the customer typed it, without a leading "微信:" / "WeChat ID:" label (an English
+ * label needs a separator, so an ID like "WeChatLina2020" is kept whole). Accepts WeChat's own
+ * format (a letter, then 6–20 letters, digits, - or _), a phone number used as the WeChat ID
+ * ("微信就是手机号 (949) 555-0101"), or an all-digit ID.
+ */
 export function validWechat(s: unknown): string | undefined {
   if (typeof s !== 'string') return undefined;
-  const t = s.trim().replace(/^(微信号?|wechat(\s*id)?)\s*[:：]?\s*/i, '');
-  return /^[A-Za-z0-9][-_A-Za-z0-9.]{2,39}$/.test(t) ? t : undefined;
+  const t = s.trim().replace(/^(?:微信号?\s*[:：]?|wechat(?:\s*id)?(?:\s*[:：]|\s+))\s*/i, '');
+  if (validPhone(t) || /^\d{6,15}$/.test(t)) return t;
+  return /^[A-Za-z][-_A-Za-z0-9]{5,19}$/.test(t) ? t : undefined;
+}
+
+/** Normalises how the customer wants to be contacted ("WeChat", "text", "短信", "call"…) to phone / sms / email / wechat. */
+export function normalizePreference(v: unknown): ContactPreference | undefined {
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim().toLowerCase();
+  if (contactPreference(t)) return t as ContactPreference;
+  if (/^(text|texts|texting|text message|message|短信|发短信|信息)$/.test(t)) return 'sms';
+  if (/^(call|phone call|calls|电话|打电话|通电话)$/.test(t)) return 'phone';
+  if (/^(e-mail|mail|邮件|邮箱|发邮件)$/.test(t)) return 'email';
+  if (/^(weixin|wx|微信|加微信)$/.test(t)) return 'wechat';
+  return undefined;
 }
 export function validZip(s: unknown): string | undefined {
   if (typeof s !== 'string') return undefined;
@@ -138,10 +156,36 @@ export function validZip(s: unknown): string | undefined {
 }
 const str = (v: unknown, max = 300) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
 
-/** Contact details are only kept if the customer actually typed them (guards against a hallucinated phone/email/WeChat ID). */
+/** Words with which a customer states how they want to be contacted ("text me", "加我微信", "打电话给我"…). A method that is merely the only one given is not a stated preference. */
+const PREFERENCE_CUE: Record<ContactPreference, RegExp> = {
+  phone: /(\bcall (me|us)\b|\bphone call\b|\bgive (me|us) a call\b|打电话|通电话|电话联系|来电|打给我)/i,
+  sms: /(\btext(s|ing)?\b|\bsms\b|短信|发信息|发消息|简讯)/i,
+  email: /(\b(by|via|through) e-?mail\b|\be-?mail (me|us)\b|prefer e-?mail|发邮件|邮件联系|邮箱联系|用邮件|用邮箱)/i,
+  wechat: /(加我?微信|微信联系|用微信|发微信|微信(就行|就可以|方便|找我|聊)|\b(on|via|by|through) wechat\b|wechat me\b|add me on wechat)/i,
+};
+/** The preferred contact method, kept only when the customer's own messages state it. */
+export function statedPreference(history: ChatMessage[], value: unknown): ContactPreference | undefined {
+  const pref = normalizePreference(value);
+  if (!pref) return undefined;
+  const text = history.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+  return PREFERENCE_CUE[pref].test(text) ? pref : undefined;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Contact details are only kept if the customer actually typed them (guards against a hallucinated
+ * phone/email/WeChat ID). A WeChat ID must also come with the customer mentioning WeChat, and match
+ * as a whole word (a name or another word the customer typed is not their WeChat ID).
+ */
 export function customerSaid(history: ChatMessage[], value: string, kind: 'phone' | 'email' | 'zip' | 'wechat'): boolean {
   const text = history.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
-  if (kind === 'email' || kind === 'wechat') return text.toLowerCase().includes(value.toLowerCase());
+  if (kind === 'wechat') {
+    if (!/(微信|wechat|weixin)/i.test(text)) return false;
+    if (validPhone(value) || /^\d+$/.test(value)) return customerSaid(history, value, 'phone');
+    return new RegExp(`(^|[^A-Za-z0-9_-])${escapeRe(value)}([^A-Za-z0-9_-]|$)`, 'i').test(text);
+  }
+  if (kind === 'email') return text.toLowerCase().includes(value.toLowerCase());
   const d = digits(value);
   if (kind === 'zip') return new RegExp(`(^|\\D)${d}(\\D|$)`).test(text);
   return digits(text).includes(d.length === 11 && d.startsWith('1') ? d.slice(1) : d);
@@ -162,20 +206,22 @@ export function checkServiceArea(zipInput: string, prefixes = config.serviceZipP
 
 /* ---------------- lead extraction (structured output) ---------------- */
 
-const nullableStr = z.string().nullable();
+// one schema instance per field: a shared instance is emitted once as a $ref and the field descriptions are lost
+const nullableStr = (description: string) => z.string().nullable().describe(description);
 export const ExtractSchema = z.object({
-  name: nullableStr.describe('Customer name as they gave it, else null'),
-  phone: nullableStr.describe('Phone number exactly as the customer typed it, else null'),
-  email: nullableStr.describe('Email exactly as the customer typed it, else null'),
-  wechat: nullableStr.describe('WeChat ID exactly as the customer typed it, else null'),
-  contact_preference: z.enum(CONTACT_PREFERENCES).nullable().describe('How the customer said they prefer to be contacted: phone (call), sms (text message), email or wechat; null if they did not say'),
-  zip: nullableStr.describe('5-digit ZIP code the customer gave, else null'),
-  room_type: nullableStr.describe('Room(s) the project is for, e.g. "master bedroom", "living room + 2 bedrooms"'),
-  window_count: nullableStr.describe('Number of windows as stated, e.g. "3", "about 10"'),
-  approximate_size: nullableStr.describe('Approximate window sizes or types as stated, e.g. "one 8 ft sliding door"'),
-  primary_need: nullableStr.describe('Main need(s): blackout, privacy, light control, insulation, decor, etc.'),
-  motorization_interest: nullableStr.describe('"yes", "no", "maybe" or a short note, only if discussed'),
-  budget_range: nullableStr.describe('Budget the CUSTOMER stated, verbatim; null if the customer did not state one. Never infer.'),
+  name: nullableStr('Customer name as they gave it, else null'),
+  phone: nullableStr('Phone number exactly as the customer typed it, else null'),
+  email: nullableStr('Email exactly as the customer typed it, else null'),
+  wechat: nullableStr('WeChat ID exactly as the customer typed it, else null. Only an ID the customer gave as their WeChat; never their name or another word'),
+  // plain string, not an enum: the structured-output grammar does not enforce enums, and one odd value must not fail the whole extraction
+  contact_preference: nullableStr('How the customer explicitly said they prefer to be contacted: "phone" (a call), "sms" (a text message), "email" or "wechat"; null if they did not say (giving only one contact detail is not a stated preference)'),
+  zip: nullableStr('5-digit ZIP code the customer gave, else null'),
+  room_type: nullableStr('Room(s) the project is for, e.g. "master bedroom", "living room + 2 bedrooms"'),
+  window_count: nullableStr('Number of windows as stated, e.g. "3", "about 10"'),
+  approximate_size: nullableStr('Approximate window sizes or types as stated, e.g. "one 8 ft sliding door"'),
+  primary_need: nullableStr('Main need(s): blackout, privacy, light control, insulation, decor, etc.'),
+  motorization_interest: nullableStr('"yes", "no", "maybe" or a short note, only if discussed'),
+  budget_range: nullableStr('Budget the CUSTOMER stated, verbatim; null if the customer did not state one. Never infer.'),
   products_recommended: z.array(z.string()).describe('Product names the assistant recommended in this conversation'),
   consultation_interest: z.enum(['yes', 'no', 'unknown']).describe('yes only if the customer explicitly agreed to or asked for a consultation / visit / measurement'),
   wants_human: z.boolean().describe('true if the customer asked to talk to a person'),
@@ -218,7 +264,7 @@ export function sanitizeExtraction(x: Extracted, history: ChatMessage[]): LeadPa
     phone: phone && customerSaid(history, phone, 'phone') ? phone : undefined,
     email: email && customerSaid(history, email, 'email') ? email : undefined,
     wechat: wechat && customerSaid(history, wechat, 'wechat') ? wechat : undefined,
-    contact_preference: contactPreference(x.contact_preference),
+    contact_preference: statedPreference(history, x.contact_preference),
     zip: zip && customerSaid(history, zip, 'zip') ? zip : undefined,
     room_type: str(x.room_type, 120),
     window_count: str(x.window_count, 40),
@@ -287,12 +333,13 @@ export async function salesTurn(history: ChatMessage[], conversationId: string, 
         const phone = validPhone(input.phone);
         const email = validEmail(input.email);
         const wechat = validWechat(input.wechat);
+        const customerName = str(input.name, 80);
         const patch: LeadPatch = {
-          name: str(input.name, 80),
+          name: customerName,
           phone: phone && customerSaid(trimmed, phone, 'phone') ? phone : undefined,
           email: email && customerSaid(trimmed, email, 'email') ? email : undefined,
-          wechat: wechat && customerSaid(trimmed, wechat, 'wechat') ? wechat : undefined,
-          contact_preference: contactPreference(input.contact_preference),
+          wechat: wechat && wechat.toLowerCase() !== customerName?.toLowerCase() && customerSaid(trimmed, wechat, 'wechat') ? wechat : undefined,
+          contact_preference: statedPreference(trimmed, input.contact_preference),
           zip: validZip(input.zip),
           preferred_time: str(input.preferred_time, 120),
           notes: str(human ? input.reason : input.notes, 300),
@@ -311,7 +358,7 @@ export async function salesTurn(history: ChatMessage[], conversationId: string, 
             is_error: true,
             content: human
               ? 'Noted: the customer wants a person, but there is no way to reach them yet. Do not give our phone number or email (unless the customer asked for them). Say the S. MORI team can contact them directly and ask for their name and the best way to reach them: a phone number (call or text), email or WeChat, whichever they prefer, in one short, friendly question. When they reply with it, call request_human again with those details.'
-              : 'A name plus a phone number, email or WeChat ID (as typed by the customer) is required. Ask the customer for them briefly, letting them choose whichever way they prefer to be contacted.',
+              : 'A name plus a phone number, email or WeChat ID (as typed by the customer) is required. Ask the customer for them briefly, letting them choose whichever way they prefer to be contacted. When they reply with it, call request_consultation again with those details.',
           };
         }
         st.lead = await upsertConversationLead(conversationId, patch, upsertOpts(signals));

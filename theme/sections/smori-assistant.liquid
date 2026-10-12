@@ -19,6 +19,8 @@
        data-phone="{{ section.settings.phone | escape }}"
        data-email="{{ section.settings.email | escape }}"
        data-privacy-url="{{ section.settings.privacy_url | escape }}"
+       data-show-notice="{{ section.settings.show_notice }}"
+       data-show-consent="{{ section.settings.show_consent }}"
        data-notice-zh="{{ section.settings.notice_zh | escape }}"
        data-notice-en="{{ section.settings.notice_en | escape }}"
        data-consent-zh="{{ section.settings.consent_zh | escape }}"
@@ -46,6 +48,8 @@
     { "type": "text", "id": "phone", "label": "Phone for human handoff", "default": "(949) 880-1322" },
     { "type": "text", "id": "email", "label": "Email for human handoff", "default": "BonnieX@smoriwindowfashion.com" },
     { "type": "header", "content": "Privacy notice" },
+    { "type": "checkbox", "id": "show_notice", "label": "Show the chat notice under the chat", "default": true },
+    { "type": "checkbox", "id": "show_consent", "label": "Show the notice above the form buttons", "default": true },
     { "type": "text", "id": "privacy_url", "label": "Privacy policy link", "info": "Leave empty until the store's privacy policy is published, then use /policies/privacy-policy. Shown after the chat notice." },
     { "type": "textarea", "id": "notice_zh", "label": "聊天提示（中文）", "info": "Shown under the chat. Empty = 对话由 AI 处理并会被保存，用于回答您的问题和顾问跟进。" },
     { "type": "textarea", "id": "notice_en", "label": "Chat notice (EN)", "info": "Shown under the chat. Empty = Chats are answered by AI and saved so our team can follow up." },

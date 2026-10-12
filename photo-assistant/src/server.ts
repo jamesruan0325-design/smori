@@ -14,7 +14,7 @@ import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConf
 import { approveAndPublish, diskStatus, finalizeProject, ingestPhoto, pruneStorage, readLog, runAutoCycle, startScheduler } from './auto.js';
 import { notifyConfigured, sendNtfy } from './notify.js';
 import { proxyAuth, handleChat, handleLead, handlePing, rateLimitDiagnostics } from './proxy.js';
-import { leadsToCsv, listLeads, markLead, pushPending, retryFailedPushes, setLeadStage, STAGES, type Stage } from './leads.js';
+import { leadsToCsv, listLeads, markLead, pushStatus, retryFailedPushes, setLeadStage, STAGES, type Stage } from './leads.js';
 import { checkPromotions, readPromoState, setPromotionLive, startPromotionScheduler, SOURCES } from './promotions.js';
 import { getMetaobjectStatus, adminUrlFor, PROMOTION_TYPE } from './shopify.js';
 import { claudeConfigured } from './copy.js';
@@ -133,7 +133,10 @@ app.get('/api/health', wrap(async (_req, res) => {
   const dbxConnected = await dropboxConnected();
   const st = await dropboxState();
   out.assistant = { model: config.chatModel, proxySignatureOptional: config.proxySignatureOptional, rateLimit: rateLimitDiagnostics() };
-  try { out.leads = { pushPending: (await listLeads(100_000)).filter(pushPending).length }; } catch { out.leads = null; }
+  try {
+    const st = (await listLeads(100_000)).map((l) => pushStatus(l));
+    out.leads = { pushRetrying: st.filter((x) => x === 'retrying').length, pushGaveUp: st.filter((x) => x === 'gave_up').length };
+  } catch { out.leads = null; }
   try { out.disk = await diskStatus(); } catch { out.disk = null; }
   out.auto = { enabled: config.autoEnabled, pollMinutes: config.autoPollMinutes, autoPublish: config.autoPublish, publishConfidence: config.autoPublishConfidence, notify: notifyConfigured(), inbox: Boolean(config.inboxToken) };
   out.dropbox = { configured: dropboxConfigured(), connected: dbxConnected, folder: st.folder ?? config.dropboxFolder, lastRun: st.lastRun ?? null, seen: Object.keys(st.seen).length };
@@ -173,7 +176,7 @@ app.post('/api/promotions/live', wrap(async (req, res) => { await setPromotionLi
 
 // ---- leads from the website assistant ----
 const stageParam = (v: unknown): Stage | undefined => (STAGES as readonly string[]).includes(String(v)) ? (v as Stage) : undefined;
-app.get('/api/leads', wrap(async (req, res) => { res.json(await listLeads(500, stageParam(req.query.stage))); }));
+app.get('/api/leads', wrap(async (req, res) => { res.json((await listLeads(500, stageParam(req.query.stage))).map((l) => ({ ...l, push_status: pushStatus(l) }))); }));
 app.get('/api/leads.csv', wrap(async (req, res) => {
   const csv = leadsToCsv(await listLeads(5000, stageParam(req.query.stage)));
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');

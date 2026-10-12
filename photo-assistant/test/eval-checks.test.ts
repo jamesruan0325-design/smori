@@ -136,6 +136,75 @@ test('contact asks: ZIP / personal details asked vs our own phone given', () => 
   assert.deepEqual(checks.contactAsks("What's your WeChat ID?"), { zip: false, contact: true });
   assert.deepEqual(checks.contactAsks('方便留一下您的称呼，以及电话、邮箱或微信中您习惯的一种吗？'), { zip: false, contact: true });
   assert.deepEqual(checks.contactAsks('顾问也可以通过微信和您沟通。'), { zip: false, contact: false }, 'a statement, not a request');
+  // WeChat named as the channel we will use, followed by a question: not a request for details
+  assert.deepEqual(checks.contactAsks('好的，顾问会在营业时间通过微信 wang_test2 联系您，请问还有什么想先了解的吗？'), { zip: false, contact: false });
+  assert.deepEqual(checks.contactAsks('收到，顾问会加您的微信，在营业时间内和您联系，您看可以吗？'), { zip: false, contact: false });
+  // acknowledging details the customer already gave is not a request
+  assert.deepEqual(checks.contactAsks('陈先生您好，感谢您留下电话。'), { zip: false, contact: false });
+  assert.deepEqual(checks.contactAsks('电话已经记下了，请问您想先给哪个房间做呢？'), { zip: false, contact: false });
+  assert.deepEqual(checks.contactAsks("Thanks for your number, Lisa. Which room are you shopping for?"), { zip: false, contact: false });
+  assert.deepEqual(checks.contactAsks("I've noted your number. Which room is it for?"), { zip: false, contact: false });
+  // ...but an acknowledgement plus a real request still counts
+  assert.deepEqual(checks.contactAsks('感谢您留下电话，方便再留个邮箱吗？'), { zip: false, contact: true });
+});
+
+test('harness: the contact-choice scenarios pass with well-behaved replies and catch the wrong ones', async () => {
+  const ext = (over: Record<string, unknown>) => async () => ({ name: null, phone: null, email: null, wechat: null, contact_preference: null, zip: null, room_type: null, window_count: null, approximate_size: null, primary_need: null, motorization_interest: null, budget_range: null, products_recommended: [], consultation_interest: 'unknown' as const, wants_human: false, summary: '客户咨询窗饰。', ...over });
+  const fails = (r: { checks: { pass: boolean; rule: string }[] }) => r.checks.filter((c) => !c.pass).map((c) => c.rule);
+
+  // contact volunteered, just browsing
+  let r = await harness.runScenario(byId('contact-volunteered-no-intent'), 1, { create: scripted([{ text: '陈先生您好，感谢您留下电话。我们主要做 Hunter Douglas 的各类遮阳产品，也做定制窗帘。请问您想先为哪个房间选窗帘，最在意遮光、隐私还是采光？' }]), extract: ext({ name: '陈', phone: '949-555-0123', contact_preference: 'phone' }) });
+  assert.equal(r.hardPass, true, JSON.stringify(fails(r)));
+  assert.equal(r.lead?.stage, 'contact_pending');
+  r = await harness.runScenario(byId('contact-volunteered-no-intent'), 2, { create: scripted([{ text: '我们做 Hunter Douglas 遮阳产品和定制窗帘。方便再留个邮箱和邮编吗？我们安排顾问上门。' }]), extract: ext({ name: '陈', phone: '949-555-0123' }) });
+  assert.ok(fails(r).includes('购买意向前不索要邮编/联系方式'));
+  r = await harness.runScenario(byId('contact-volunteered-en'), 1, { create: scripted([{ text: "Thanks for your number, Lisa. We carry Hunter Douglas shades and custom drapery. Which room are you shopping for?" }]), extract: ext({ name: 'Lisa', phone: '949-555-1234' }) });
+  assert.equal(r.hardPass, true, JSON.stringify(fails(r)));
+
+  // WeChat-only booking
+  const wxGood = scripted([
+    { text: '主卧遮光可以考虑 Duette 的遮光款。我们提供免费的上门咨询和测量，方便告诉我您的邮编吗？' },
+    { tool: { name: 'check_service_area', input: { zip: '92618' } } },
+    { tool: { name: 'request_consultation', input: { name: '李女士', wechat: 'li_test88', contact_preference: 'wechat', zip: '92618' } } },
+    { text: '好的李女士，92618 在我们的服务范围内。预约申请已提交，顾问会在营业时间通过微信联系您确认时间，不会给您打电话。' },
+  ]);
+  r = await harness.runScenario(byId('wechat-booking-zh'), 1, { create: wxGood, extract: ext({ room_type: '主卧', primary_need: '遮光', consultation_interest: 'yes' }) });
+  assert.equal(r.hardPass, true, JSON.stringify(fails(r)));
+  assert.equal(r.lead?.stage, 'consultation_requested');
+  const wxBad = scripted([
+    { text: '主卧遮光可以考虑 Duette 的遮光款。我们提供免费的上门咨询和测量，方便告诉我您的邮编吗？' },
+    { text: '好的。为了安排上门，方便留一下您的电话吗？' },
+  ]);
+  r = await harness.runScenario(byId('wechat-booking-zh'), 2, { create: wxBad, extract: ext({}) });
+  assert.ok(fails(r).includes('不应出现：客户选了微信后仍要电话'));
+  assert.ok(fails(r).includes('调用 request_consultation'));
+
+  // text-me booking: the preference is checked on the lead
+  r = await harness.runScenario(byId('sms-booking-en'), 1, { create: scripted([
+    { text: 'Happy to set that up. The free in-home consultation includes measuring and samples. What is your ZIP code, and how should we reach you?' },
+    { tool: { name: 'request_consultation', input: { name: 'Tom', phone: '949-555-0199', zip: '92660', contact_preference: 'sms' } } },
+    { text: 'Thanks Tom. Your request is in; a team member will text you during business hours to confirm a time.' },
+  ]), extract: ext({}) });
+  assert.equal(r.hardPass, true, JSON.stringify(fails(r)));
+  r = await harness.runScenario(byId('sms-booking-en'), 2, { create: scripted([
+    { text: 'Happy to set that up. What is your ZIP code?' },
+    { tool: { name: 'request_consultation', input: { name: 'Tom', phone: '949-555-0199', zip: '92660' } } },
+    { text: 'Thanks Tom. Your request is in.' },
+  ]), extract: ext({}) });
+  assert.ok(fails(r).includes('线索记录的首选联系方式 = sms'), 'a lost preference is caught');
+
+  // WeChat-only handoff: asking how to address the customer is fine; asking for a phone again is not
+  r = await harness.runScenario(byId('human-wechat-zh'), 1, { create: scripted([
+    { tool: { name: 'request_human', input: { reason: '想和真人顾问聊', wechat: 'wang_test2', contact_preference: 'wechat' } } },
+    { text: '好的，我已经通知 S. MORI 团队，顾问会在营业时间通过微信联系您。请问怎么称呼您？' },
+  ]), extract: ext({ wechat: 'wang_test2', wants_human: true }) });
+  assert.equal(r.hardPass, true, JSON.stringify(fails(r)));
+  assert.equal(r.lead?.stage, 'handed_to_human');
+  r = await harness.runScenario(byId('human-wechat-zh'), 2, { create: scripted([
+    { tool: { name: 'request_human', input: { reason: '想和真人顾问聊', wechat: 'wang_test2' } } },
+    { text: '好的。方便再留一个电话吗？这样顾问联系更快。' },
+  ]), extract: ext({ wechat: 'wang_test2', wants_human: true }) });
+  assert.ok(fails(r).includes('不应出现：客户只留微信后又要电话或邮箱'));
 });
 
 test('products, language, human claim, spec numbers', () => {
@@ -155,7 +224,7 @@ test('scenario set: unique ids, valid turn indices, required categories present'
   const ids = SCENARIOS.map((s) => s.id);
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(SCENARIOS.length >= 30);
-  for (const c of ['价格', '服务范围', '未知信息', '联系方式时机', '推进预约', '转人工', '语言', '推荐', '不推销高端', '线索']) assert.ok(SCENARIOS.some((s) => s.category === c), c);
+  for (const c of ['价格', '服务范围', '未知信息', '联系方式时机', '推进预约', '转人工', '语言', '推荐', '不推销高端', '联系方式选择', '线索']) assert.ok(SCENARIOS.some((s) => s.category === c), c);
   assert.ok(SCENARIOS.some((s) => s.lang === 'en') && SCENARIOS.some((s) => s.lang === 'zh'));
   for (const s of SCENARIOS) {
     assert.ok(s.turns.length && s.judge.length, s.id);
@@ -236,7 +305,7 @@ test('harness: human-no-contact requires asking for the customer\'s contact (A) 
   assert.deepEqual(givesOurs.checks.filter((c) => !c.pass).map((c) => c.rule), ['不主动给出 SMORI 电话/邮箱']);
 
   const noAsk = await harness.runScenario(sc, 3, { create: scripted([tool, { text: '好的，我已经通知团队，他们会尽快跟进。' }]) });
-  assert.deepEqual(noAsk.checks.filter((c) => !c.pass).map((c) => c.rule), ['询问客户姓名/电话（或邮箱）']);
+  assert.deepEqual(noAsk.checks.filter((c) => !c.pass).map((c) => c.rule), ['询问客户姓名/联系方式']);
 
   const asked = await harness.runScenario(byId('contact-us-asked'), 1, { create: scripted([{ text: '我们的电话是 (949) 880-1322，工作时间 Mon–Fri 9AM–5PM。' }]) });
   assert.equal(asked.hardPass, true, 'giving our number when the customer asks for it is fine');

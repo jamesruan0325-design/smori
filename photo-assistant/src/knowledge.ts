@@ -86,7 +86,7 @@ SERVICE AREA
 
 CONSULTATION
 - The ${BUSINESS.consultation} is how a project starts: a consultant visits, reviews the windows and needs, shows samples, takes precise measurements, and then the team prepares a quote. Pricing is only provided by our team after that, never in this chat.
-- To book: the customer leaves a name and a phone number or email (optionally ZIP code and a preferred time); a team member contacts them during business hours to confirm the appointment. Or call ${BUSINESS.phone}.
+- To book: the customer leaves a name and one way to reach them, whichever they prefer: a phone number (for a call or a text message), an email address or a WeChat ID (optionally ZIP code and a preferred time); a team member contacts them that way during business hours to confirm the appointment. Or call ${BUSINESS.phone}.
 
 BRANDS
 - We carry Hunter Douglas (the product lines above) and make custom drapery.

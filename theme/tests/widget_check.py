@@ -2,7 +2,9 @@
 
 Renders the widget with the production section settings on a blank page, mocks the
 /apps/assistant/* endpoints (nothing reaches a server), and checks at desktop and phone sizes:
-  - the booking / 转人工 form's submit button is visible without scrolling, before and after chatting
+  - the booking / 转人工 form's submit button and its phone / email / WeChat fields are visible without
+    scrolling, before and after chatting (on short landscape screens: the submit button)
+  - while a form is being sent it cannot be cancelled or replaced
   - a double click on submit sends the form once
   - phone, email or WeChat alone is accepted; a preferred method needs its field
   - the privacy notice is shown under the chat (and the privacy link only when configured)
@@ -33,6 +35,9 @@ def page_html(extra=None):
             f'<div id="smori-assistant" {a}></div><script src="/assets/smori-assistant.js"></script></body></html>')
 
 failures = []
+LEAD_DELAY = [0.6]
+HELD = []  # when HOLD[0] is set, /lead requests wait here until the test releases them
+HOLD = [False]
 def check(name, ok, detail=''):
     print(('PASS ' if ok else 'FAIL ') + name + (f'  ({detail})' if detail and not ok else ''))
     if not ok: failures.append(name)
@@ -59,7 +64,9 @@ def run(pw, chromium):
             if u.endswith('/apps/assistant/chat'):
                 return r.fulfill(status=200, content_type='application/json', body=json.dumps({'conversationId': 'cwidgettest01', 'reply': 'Duette in a room-darkening opacity would suit a bedroom. Which room is it for?', 'cta': 'consultation'}))
             if u.endswith('/apps/assistant/lead'):
-                posts.append(json.loads(r.request.post_data or '{}')); time.sleep(0.6)
+                posts.append(json.loads(r.request.post_data or '{}'))
+                if HOLD[0]: HELD.append(r); return None
+                time.sleep(LEAD_DELAY[0])
                 return r.fulfill(status=200, content_type='application/json', body=json.dumps({'ok': True, 'stage': 'consultation_requested', 'message': 'Received.'}))
             return r.abort()
         ctx.route('**/*', route)
@@ -67,8 +74,9 @@ def run(pw, chromium):
         pg.click('.sma-bubble'); pg.wait_for_selector('.sma-panel', state='visible'); pg.wait_for_timeout(300)
         return ctx, pg, posts
 
-    sizes = [(1366, 768, False), (1920, 1080, False), (1440, 760, False), (375, 667, True), (360, 640, True), (390, 844, True)]
-    for w, h, mobile in sizes:
+    sizes = [(1366, 768, False), (1920, 1080, False), (1440, 760, False), (1280, 720, False), (375, 667, True), (360, 640, True), (390, 844, True)]
+    short = [(667, 375, True), (844, 390, True), (740, 360, True), (568, 320, True), (320, 480, True)]
+    for w, h, mobile in sizes + short:
         for locale in ('en-US', 'zh-CN'):
             for kind, btn in (('consultation', '.sma-book'), ('human', '.sma-human')):
                 for chatted in (False, True):
@@ -79,7 +87,10 @@ def run(pw, chromium):
                     tag = f'{w}x{h} {locale} {kind} {"after chat" if chatted else "before chat"}'
                     v = pg.evaluate(VISIBLE_JS, '.sma-form button[type="submit"]')
                     check(f'submit visible: {tag}', v['visible'], json.dumps(v))
-                    check(f'consent visible: {tag}', pg.evaluate(VISIBLE_JS, '.sma-form .consent')['visible'])
+                    if (w, h, mobile) in sizes:
+                        check(f'consent visible: {tag}', pg.evaluate(VISIBLE_JS, '.sma-form .consent')['visible'])
+                        for f in ('name', 'phone', 'email', 'wechat'):
+                            check(f'{f} field visible: {tag}', pg.evaluate(VISIBLE_JS, f'.sma-form input[name="{f}"]')['visible'])
                     if SHOTS and not chatted and kind == 'consultation': pg.screenshot(path=os.path.join(SHOTS, f'form-{w}x{h}-{locale}.png'))
                     ctx.close()
 
@@ -95,6 +106,36 @@ def run(pw, chromium):
     ctx.close()
     ctx, pg, _ = new_page(1366, 768, 'en-US', False, {'data-privacy-url': 'javascript:alert(1)'})
     check('unsafe privacy link ignored', pg.locator('.sma-foot a').count() == 0)
+    ctx.close()
+    ctx, pg, _ = new_page(1366, 768, 'en-US', False, {'data-privacy-url': ' /policies/privacy-policy '})
+    check('privacy link with surrounding spaces accepted', pg.get_attribute('.sma-foot a', 'href') == '/policies/privacy-policy')
+    ctx.close()
+    ctx, pg, _ = new_page(1366, 768, 'en-US', False, {'data-show-notice': 'false', 'data-show-consent': 'false'})
+    check('notice can be switched off', 'saved' not in pg.inner_text('.sma-foot'))
+    pg.click('.sma-book')
+    check('consent line can be switched off', pg.locator('.sma-form .consent').count() == 0)
+    ctx.close()
+    # while a form is open the chat history steps aside; it comes back when the form closes
+    ctx, pg, _ = new_page(1366, 768, 'en-US', False)
+    pg.click('.sma-book')
+    check('messages hidden while the form is open', not pg.locator('.sma-messages').is_visible())
+    pg.click('.sma-form .cancel')
+    check('messages back after cancel', pg.locator('.sma-messages').is_visible() and not pg.locator('.sma-form').is_visible())
+    ctx.close()
+    # while sending: cancel is disabled and the header buttons do not replace the form
+    HOLD[0] = True
+    ctx, pg, posts = new_page(1366, 768, 'en-US', False)
+    pg.click('.sma-book'); pg.fill('.sma-form input[name="phone"]', '949-555-0100')
+    pg.evaluate("() => document.querySelector('.sma-form').requestSubmit()")
+    pg.wait_for_timeout(300)
+    check('request held while testing', len(HELD) == 1)
+    check('cancel disabled while sending', pg.locator('.sma-form .cancel').is_disabled())
+    pg.evaluate("() => { document.querySelector('.sma-human').click(); document.querySelector('.sma-book').click(); document.querySelector('.sma-form .cancel').click(); }")
+    check('form not replaced or closed while sending', pg.locator('.sma-form').is_visible() and pg.locator('.sma-form input[name="phone"]').input_value() == '949-555-0100')
+    HOLD[0] = False
+    HELD.pop().fulfill(status=200, content_type='application/json', body=json.dumps({'ok': True, 'stage': 'consultation_requested', 'message': 'Received.'}))
+    pg.wait_for_timeout(500)
+    check('confirmation shown after sending', len(posts) == 1 and not pg.locator('.sma-form').is_visible() and 'Received.' in pg.inner_text('.sma-messages'))
     ctx.close()
 
     # double submit sends once; WeChat alone is enough; a preferred method needs its field

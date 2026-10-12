@@ -36,7 +36,10 @@
     if (root.dataset['notice' + p[1]]) T[p[0]].notice = root.dataset['notice' + p[1]];
     if (root.dataset['consent' + p[1]]) T[p[0]].consent = root.dataset['consent' + p[1]];
   });
-  var privacyUrl = /^(https:\/\/|\/(?!\/))/.test(root.dataset.privacyUrl || '') ? root.dataset.privacyUrl : '';
+  var privacyUrl = (root.dataset.privacyUrl || '').trim();
+  if (!/^(https:\/\/|\/(?!\/))/i.test(privacyUrl)) privacyUrl = '';
+  /* the theme editor can switch the chat notice / form consent line off */
+  var showNotice = root.dataset.showNotice !== 'false', showConsent = root.dataset.showConsent !== 'false';
   var state = { id: null, messages: [], online: null };
   try { var saved = JSON.parse(sessionStorage.getItem('smori_chat') || 'null'); if (saved && saved.id) state = saved; } catch (e) {}
   if (!state.id) state.id = 'c' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
@@ -70,7 +73,7 @@
     $('.sma-name').textContent = t('name'); $('.sma-sub').textContent = t('sub'); $('.sma-human').textContent = t('human'); $('.sma-close').textContent = t('close');
     if (mode === 'sales') { $('.sma-book').style.display = ''; $('.sma-book').textContent = t('book'); }
     input.placeholder = t('placeholder'); sendBtn.textContent = t('send');
-    $('.sma-foot').innerHTML = esc(t('foot')) + '<br>' + esc(t('notice')) + (privacyUrl ? ' <a href="' + esc(privacyUrl) + '" target="_blank" rel="noopener">' + esc(t('privacy')) + '</a>' : '');
+    $('.sma-foot').innerHTML = esc(t('foot')) + (showNotice ? '<br>' + esc(t('notice')) : '') + (privacyUrl ? ' <a href="' + esc(privacyUrl) + '" target="_blank" rel="noopener">' + esc(t('privacy')) + '</a>' : '');
     chips.innerHTML = state.messages.length ? '' : t('chips').map(function (c) { return '<button type="button">' + esc(c) + '</button>'; }).join('');
     chips.querySelectorAll('button').forEach(function (b) { b.onclick = function () { send(b.textContent); }; });
   }
@@ -134,11 +137,13 @@
   }
 
   var formKind = null;
-  function closeForm() { form.style.display = 'none'; formKind = null; chips.style.display = ''; }
-  /* the form takes the space of the quick-reply chips and scrolls inside the panel; the submit row stays visible (see .sma-form .actions) */
+  /* while a form is open it has the whole panel below the header (messages, chips, chat input and footer step aside, see .sma-form-open);
+     while it is being sent it cannot be closed or replaced */
+  function closeForm() { if (form.dataset.busy) return; form.style.display = 'none'; formKind = null; root.classList.remove('sma-form-open'); msgs.scrollTop = msgs.scrollHeight; }
   function openForm(kind, keepOpen) {
+    if (form.dataset.busy) return;
     if (form.style.display !== 'none' && formKind === kind) { if (!keepOpen) closeForm(); return; }
-    formKind = kind; form.style.display = 'flex'; chips.style.display = 'none';
+    formKind = kind; form.style.display = 'flex'; root.classList.add('sma-form-open');
     var book = kind === 'consultation', opts = t('prefOpts');
     form.innerHTML = '<div class="sma-form-title">' + esc(t(book ? 'bookTitle' : 'formTitle')) + '</div>' +
       '<input name="name" placeholder="' + esc(t('nameL')) + '" autocomplete="name">' +
@@ -149,9 +154,9 @@
         ? '<div class="row"><input name="zip" placeholder="' + esc(t('zip')) + '" inputmode="numeric" maxlength="10" autocomplete="postal-code"><input name="preferred_time" placeholder="' + esc(t('time')) + '"></div>' +
           '<textarea name="notes" placeholder="' + esc(t('bookNeed')) + '"></textarea>'
         : '<textarea name="notes" placeholder="' + esc(t('need')) + '"></textarea>') +
-      '<div class="actions"><div class="err" style="display:none"></div><div class="consent">' + esc(t('consent')) + '</div>' +
+      '<div class="actions"><div class="err" style="display:none"></div>' + (showConsent ? '<div class="consent">' + esc(t('consent')) + '</div>' : '') +
         '<div class="buttons"><button type="button" class="cancel">' + esc(t('cancel')) + '</button><button type="submit" class="primary">' + esc(t('submit')) + '</button></div></div>';
-    form.scrollTop = 0; msgs.scrollTop = msgs.scrollHeight;
+    form.scrollTop = 0;
     form.querySelector('.cancel').onclick = closeForm;
     form.onsubmit = function (e) {
       e.preventDefault();
@@ -166,14 +171,14 @@
       var last = state.messages.filter(function (m) { return m.role === 'user'; }).slice(-3).map(function (m) { return m.content; }).join(' / ');
       if (last) body.interest = last.slice(0, 300);
       if (mode === 'sales') { body.agent = 'sales'; body.kind = kind; body.page = pageContext(); }
-      var label = btn.textContent;
-      form.dataset.busy = '1'; btn.disabled = true; btn.textContent = t('sending'); er.style.display = 'none';
-      function done() { delete form.dataset.busy; btn.disabled = false; btn.textContent = label; }
+      var label = btn.textContent, cancel = form.querySelector('.cancel');
+      form.dataset.busy = '1'; btn.disabled = true; cancel.disabled = true; btn.textContent = t('sending'); er.style.display = 'none';
+      function done() { delete form.dataset.busy; btn.disabled = false; cancel.disabled = false; btn.textContent = label; }
       fetch(endpoint + '/lead', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
         .then(function (x) {
           done();
-          if (x.ok) { if (formKind === kind) closeForm(); if (book) { state.booked = true; save(); } add('sys', (x.j && x.j.message) || t(book ? 'booked' : 'sent')); }
+          if (x.ok) { closeForm(); if (book) { state.booked = true; save(); } add('sys', (x.j && x.j.message) || t(book ? 'booked' : 'sent')); }
           else fail((x.j && x.j.error) || t('offline'));
         })
         .catch(function () { done(); fail(t('offline')); });

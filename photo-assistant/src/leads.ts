@@ -37,8 +37,11 @@ export interface Lead {
   stage_history?: { stage: Stage; at: string; by: 'agent' | 'staff' }[];
   /** Stages a push notification was delivered for (each stage pushes at most once). */
   notified?: Stage[];
-  /** Last failed push: the stage stays out of `notified`, so it is retried (next update or the periodic retry). */
-  notify_error?: { stage: Stage; first_at: string; last_at: string; attempts: number; error: string };
+  /**
+   * A push that is due but not delivered yet. Written before the push is sent, so a failure or a restart
+   * mid-push leaves it here and it is retried (next update of the lead, or retryFailedPushes). Removed on delivery.
+   */
+  push_pending?: { stage: Stage; since: string; attempts: number; last_error?: string; last_at?: string };
   name?: string;
   phone?: string;
   email?: string;
@@ -87,9 +90,18 @@ async function writeLead(lead: Lead): Promise<void> {
   await fs.rename(tmp, file);
 }
 
+/** "首选短信", or "首选短信，但没留电话" when the chosen method has no matching detail yet. */
+function preferenceNote(l: Lead): string {
+  const p = l.contact_preference;
+  if (!p) return '';
+  const field = PREFERENCE_FIELD[p];
+  return l[field] ? `首选${CONTACT_PREFERENCE_ZH[p]}` : `首选${CONTACT_PREFERENCE_ZH[p]}，但没留${({ phone: '电话', email: '邮箱', wechat: '微信号' })[field]}`;
+}
+
 function contactLine(l: Lead): string {
   const line = [l.phone, l.email, l.wechat && `WeChat ${l.wechat}`].filter(Boolean).join(' · ');
-  return l.contact_preference ? `${line}（首选${CONTACT_PREFERENCE_ZH[l.contact_preference]}）` : line;
+  const pref = preferenceNote(l);
+  return pref ? `${line}（${pref}）` : line;
 }
 
 /** Legacy assistant: saves a lead that already has contact details (always a human follow-up). */
@@ -98,16 +110,25 @@ export async function saveLead(input: Omit<Lead, 'id' | 'createdAt'>, notify: No
   const now = new Date();
   const lead: Lead = { id: newId(now), createdAt: now.toISOString(), lead_source: 'AI Assistant', stage: 'handed_to_human', ...input };
   lead.stage_history ??= [{ stage: lead.stage!, at: lead.createdAt, by: 'agent' }];
-  lead.notified ??= [lead.stage!];
+  // same rule as the sales leads: saved first, recorded as sent only once delivered, retried otherwise
+  const pending: NonNullable<Lead['push_pending']> = { stage: lead.stage!, since: lead.createdAt, attempts: 0 };
+  lead.push_pending = pending;
   await writeLead(lead);
-  await notify('SMORI 网站新咨询', `${lead.name || '（未留姓名）'} · ${contactLine(lead)}\n${lead.interest || lead.notes || ''}${lead.city ? ` · ${lead.city}` : ''}`, `${config.appUrl}/#leads`)
-    .catch((e) => console.error(`lead push failed: ${lead.id}: ${(e as Error).message}`));
+  try {
+    await notify('SMORI 网站新咨询', `${lead.name || '（未留姓名）'} · ${contactLine(lead)}\n${lead.interest || lead.notes || ''}${lead.city ? ` · ${lead.city}` : ''}`, `${config.appUrl}/#leads`);
+    lead.notified = [lead.stage!];
+    delete lead.push_pending;
+  } catch (e) {
+    Object.assign(pending, { attempts: 1, last_at: lead.createdAt, last_error: String((e as Error)?.message ?? e).slice(0, 200) });
+    console.error(`lead push failed: ${lead.id}: ${pending.last_error}`);
+  }
+  await writeLead(lead);
   return lead;
 }
 
-/** Old leads (before stages existed) were all contact-form / human follow-ups. */
+/** Old leads (before stages existed) were all contact-form / human follow-ups. An unknown stage on a sales lead (written by a newer version) reads as new, never as a person request. */
 export function normalizeLead(l: Lead): Lead {
-  if (!l.stage || !STAGES.includes(l.stage)) l.stage = 'handed_to_human';
+  if (!l.stage || !STAGES.includes(l.stage)) l.stage = l.stage && l.lead_source === SALES_SOURCE ? 'new' : 'handed_to_human';
   if (!l.lead_source) l.lead_source = l.source === 'form' ? 'AI Assistant (form)' : 'AI Assistant';
   return l;
 }
@@ -136,11 +157,16 @@ async function staffUpdate(id: string, fn: (lead: Lead) => void): Promise<Lead> 
   });
 }
 
+/** Marking a lead handled also stops retrying its push (someone is already on it). */
 export async function markLead(id: string, handled: boolean): Promise<void> {
-  await staffUpdate(id, (lead) => { lead.handled = handled; lead.updatedAt = new Date().toISOString(); });
+  await staffUpdate(id, (lead) => {
+    lead.handled = handled;
+    if (handled) delete lead.push_pending;
+    lead.updatedAt = new Date().toISOString();
+  });
 }
 
-/** Staff override: any stage, any direction. */
+/** Staff override: any stage, any direction. A stage set by staff is not pushed (staff already know). */
 export async function setLeadStage(id: string, stage: Stage): Promise<Lead> {
   if (!STAGES.includes(stage)) throw new Error(`unknown stage ${stage}`);
   return staffUpdate(id, (lead) => {
@@ -149,6 +175,8 @@ export async function setLeadStage(id: string, stage: Stage): Promise<Lead> {
       lead.stage = stage;
       lead.stage_history = [...(lead.stage_history ?? []), { stage, at, by: 'staff' }];
     }
+    if (stage !== 'new') lead.notified = [...new Set([...(lead.notified ?? []), stage])];
+    if (!pushDue(lead)) delete lead.push_pending;
     lead.updatedAt = at;
   });
 }
@@ -179,7 +207,8 @@ export function computeStage(l: Partial<Lead>, signals: StageSignals = {}): Stag
   if (contact && (signals.consultation || l.consultation_interest === 'yes')) return 'consultation_requested';
   if (contact && (l.room_type || l.primary_need)) return 'qualified';
   if (contact) return 'contact_pending';
-  if (hasQualification(l)) return 'new';
+  // a booking / person request before any contact is kept, so it takes effect as soon as contact arrives
+  if (hasQualification(l) || l.consultation_interest === 'yes' || l.wants_human) return 'new';
   return null;
 }
 
@@ -225,7 +254,7 @@ export function stripStatusClaims(text: string): string {
 
 /** Deterministic status line from the current lead fields. */
 export function leadStatusLine(l: Lead): string {
-  const got = [l.name && `姓名 ${l.name}`, l.phone && `电话 ${l.phone}`, l.email && `邮箱 ${l.email}`, l.wechat && `微信 ${l.wechat}`, l.contact_preference && `首选${CONTACT_PREFERENCE_ZH[l.contact_preference]}`].filter(Boolean);
+  const got = [l.name && `姓名 ${l.name}`, l.phone && `电话 ${l.phone}`, l.email && `邮箱 ${l.email}`, l.wechat && `微信 ${l.wechat}`, preferenceNote(l)].filter(Boolean);
   const contact = hasContact(l) ? `联系信息：${got.join('、')}` : `联系信息：${l.name ? `姓名 ${l.name}，` : ''}尚未留下电话或邮箱`;
   const zip = l.zip ? `ZIP ${l.zip}（${l.zip_in_area ? 'OC 常规服务区' : '服务范围待团队确认'}）` : '';
   const stage = l.stage ? `阶段：${STAGE_LABEL_ZH[l.stage]}${l.preferred_time ? `，希望时间 ${l.preferred_time}` : ''}` : '';
@@ -241,7 +270,7 @@ const PUSH_TITLE: Record<Stage, string> = { new: '', contact_pending: 'SMORI 销
 
 function pushBody(l: Lead): string {
   const facts = [l.room_type, l.window_count && `${l.window_count} 扇窗`, l.primary_need, l.motorization_interest && `电动：${l.motorization_interest}`, l.zip && `ZIP ${l.zip}${l.zip_in_area ? '（OC）' : ''}`, l.preferred_time && `时间：${l.preferred_time}`].filter(Boolean).join(' · ');
-  const hint = l.stage === 'contact_pending' ? '客户留了联系方式，还没谈需求，也没要求预约。' : '';
+  const hint = l.stage !== 'contact_pending' ? '' : hasQualification(l) ? '客户留了联系方式，还没确认房间或主要需求，也没要求预约。' : '客户留了联系方式，还没谈需求，也没要求预约。';
   return `${l.name || '（未留姓名）'} · ${contactLine(l)}\n${[hint, facts].filter(Boolean).join('\n')}${l.summary ? `\n${l.summary}` : ''}`.slice(0, 900);
 }
 
@@ -253,21 +282,41 @@ export function pushDue(l: Pick<Lead, 'stage' | 'notified'>): boolean {
   return !notified.includes(stage) && rank(stage) > Math.max(-1, ...notified.map(rank));
 }
 
-/** Sends the push for the lead's current stage. Only a delivered push is recorded in `notified`; a failure is recorded in `notify_error` and retried later. */
+/** Marks the push for the current stage as pending (kept if it is already pending for this stage). */
+function markPushPending(lead: Lead, at: string): void {
+  if (!pushDue(lead)) { delete lead.push_pending; return; }
+  if (lead.push_pending?.stage !== lead.stage) lead.push_pending = { stage: lead.stage!, since: at, attempts: 0 };
+}
+
+/** Sends the push for the lead's current stage. Only a delivered push is recorded in `notified`; a failure stays in `push_pending` and is retried. */
 async function deliverPush(lead: Lead, notify: Notifier, at: string): Promise<boolean> {
   const stage = lead.stage!;
+  markPushPending(lead, at);
   try {
     await notify(PUSH_TITLE[stage], pushBody(lead), `${config.appUrl}/#leads`);
     lead.notified = [...new Set([...(lead.notified ?? []), stage])];
-    delete lead.notify_error;
+    delete lead.push_pending;
     return true;
   } catch (e) {
-    const prev = lead.notify_error?.stage === stage ? lead.notify_error : undefined;
-    const error = String((e as Error)?.message ?? e).slice(0, 200);
-    lead.notify_error = { stage, first_at: prev?.first_at ?? at, last_at: at, attempts: (prev?.attempts ?? 0) + 1, error };
-    console.error(`lead push failed: ${lead.id} stage=${stage} attempt=${lead.notify_error.attempts}: ${error}`);
+    const p = lead.push_pending!;
+    p.attempts += 1;
+    p.last_at = at;
+    p.last_error = String((e as Error)?.message ?? e).slice(0, 200);
+    console.error(`lead push failed: ${lead.id} stage=${stage} attempt=${p.attempts}: ${p.last_error}`);
     return false;
   }
+}
+
+const PUSH_GRACE_MS = 60_000;
+const PUSH_GIVE_UP_MS = 48 * 3_600_000;
+
+/** Push status for the admin page: retrying (failed, or stuck more than a minute, within 48 h), gave_up (older), or null. */
+export function pushStatus(l: Lead, now = Date.now()): 'retrying' | 'gave_up' | null {
+  const p = l.push_pending;
+  if (!p || !pushDue(l) || p.stage !== l.stage) return null;
+  const age = now - Date.parse(p.since);
+  if (!p.attempts && age < PUSH_GRACE_MS) return null; // being sent right now
+  return age > PUSH_GIVE_UP_MS ? 'gave_up' : 'retrying';
 }
 
 /** Serialize writes per conversation (the chat reply, the extractor and the form can race). */
@@ -335,7 +384,8 @@ export function upsertConversationLead(conversationId: string, patch: LeadPatch,
     merged.needs_summary = stripStatusClaims(merged.needs_summary ?? '');
     merged.summary = composeSummary(merged); // always rebuilt from the latest state, before any push
 
-    await writeLead(merged);
+    markPushPending(merged, at);
+    await writeLead(merged); // saved (with the pending push) before sending, so a failure or restart cannot lose it
     if (pushDue(merged)) {
       await deliverPush(merged, notify, at);
       await writeLead(merged);
@@ -345,22 +395,21 @@ export function upsertConversationLead(conversationId: string, patch: LeadPatch,
 }
 
 /**
- * Retries pushes that failed (leads flagged with notify_error), e.g. after an ntfy outage or a
- * restart. Runs periodically from the server; gives up `maxAgeHours` after the first failure
- * (the lead keeps its failure flag in the admin page).
+ * Retries pushes that are still pending: failed, or interrupted by a restart (pending for more than a
+ * minute). Runs every 5 minutes from the server; gives up 48 h after the push became due (the lead
+ * keeps its flag in the admin page). Leads without a pending marker (all older leads) are never pushed.
  */
-export async function retryFailedPushes(opts: { notify?: Notifier; now?: () => Date; maxAgeHours?: number } = {}): Promise<{ retried: number; delivered: number }> {
+export async function retryFailedPushes(opts: { notify?: Notifier; now?: () => Date } = {}): Promise<{ retried: number; delivered: number }> {
   const notify = opts.notify ?? leadNotify;
   const now = (opts.now ?? (() => new Date()))();
-  const maxAgeMs = (opts.maxAgeHours ?? 48) * 3_600_000;
   let retried = 0;
   let delivered = 0;
   for (const l of await listLeads(100_000)) {
-    if (!l.notify_error || !pushDue(l) || now.getTime() - Date.parse(l.notify_error.first_at) > maxAgeMs) continue;
+    if (pushStatus(l, now.getTime()) !== 'retrying') continue;
     retried++;
     const ok = await withLock(l.conversationId, async () => {
       const fresh = await readLead(l.id);
-      if (!fresh.notify_error || !pushDue(fresh)) return false;
+      if (pushStatus(fresh, now.getTime()) !== 'retrying') return false;
       const sent = await deliverPush(fresh, notify, now.toISOString());
       await writeLead(fresh);
       return sent;
@@ -370,9 +419,24 @@ export async function retryFailedPushes(opts: { notify?: Notifier; now?: () => D
   return { retried, delivered };
 }
 
-/** Leads whose latest push has not been delivered (shown in the admin page). */
-export function pushPending(l: Lead): boolean {
-  return Boolean(l.notify_error) && pushDue(l);
+/**
+ * Before rolling the backend back to a version without the contact_pending stage: that version reads an
+ * unknown stage as "转人工" and would push it. This turns contact_pending into new (already notified, so
+ * nothing is pushed again). Run with: npm run cli -- leads-before-rollback
+ */
+export async function downgradeContactPending(): Promise<number> {
+  let changed = 0;
+  for (const l of await listLeads(100_000)) {
+    if (l.stage !== 'contact_pending') continue;
+    await staffUpdate(l.id, (lead) => {
+      if (lead.stage !== 'contact_pending') return;
+      lead.stage = 'new';
+      lead.stage_history = [...(lead.stage_history ?? []), { stage: 'new', at: new Date().toISOString(), by: 'staff' }];
+      delete lead.push_pending;
+      changed++;
+    });
+  }
+  return changed;
 }
 
 export function zipInServiceArea(zip: string, prefixes = config.serviceZipPrefixes): boolean {

@@ -155,6 +155,7 @@ export const SCENARIOS: Scenario[] = [
     expect: {
       noContactAskBefore: 1, bookingInviteAt: 1, askZipOrContactAt: 1,
       tools: [{ turn: 2, tool: 'request_consultation' }], stage: 'consultation_requested', singleLead: true, freshSummary: true,
+      contactPreference: null, // only an email was given: no stated preference
     },
     judge: [J_ADVANCE, 'After the customer gave name and email, it confirmed the request without promising a specific date or time', J_FACTS],
   },
@@ -394,13 +395,13 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'contact-volunteered-no-intent', category: '联系方式选择', title: '客户先留电话、只想了解产品：不推预约、不再要信息，线索=有联系方式待跟进', lang: 'zh', extract: true,
     turns: ['你好，我姓陈，电话 949-555-0123，想先了解一下你们都做哪些窗帘产品'],
-    expect: { noContactAskBefore: 1, cta: [{ turn: 0, cta: null }], stage: 'contact_pending', singleLead: true, freshSummary: true },
+    expect: { noContactAskBefore: 1, cta: [{ turn: 0, cta: null }], stage: 'contact_pending', singleLead: true, freshSummary: true, contactPreference: null },
     judge: ['客户只是留了电话、还没表达预约意向：先回答问题、了解需求，没有邀请预约或上门，也没有再索要邮编、邮箱等信息', J_FACTS, J_TONE],
   },
   {
     id: 'contact-volunteered-en', category: '联系方式选择', title: 'English: contact given first, just browsing', lang: 'en', extract: true,
     turns: ["Hi, I'm Lisa, 949-555-1234. What kinds of window treatments do you carry?"],
-    expect: { noContactAskBefore: 1, cta: [{ turn: 0, cta: null }], stage: 'contact_pending', singleLead: true, freshSummary: true },
+    expect: { noContactAskBefore: 1, cta: [{ turn: 0, cta: null }], stage: 'contact_pending', singleLead: true, freshSummary: true, contactPreference: null },
     judge: ['The customer only volunteered contact details and has not shown booking intent: it answered and learned about the project, without inviting a visit or asking for more details', J_FACTS, J_TONE],
   },
   {
@@ -409,7 +410,7 @@ export const SCENARIOS: Scenario[] = [
     expect: {
       askZipOrContactAt: 0, bookingInviteAt: 0,
       tools: [{ turn: 1, tool: 'request_consultation' }], stage: 'consultation_requested', singleLead: true, freshSummary: true, contactPreference: 'wechat',
-      mustNotMatch: [{ turn: 1, re: /(留|提供|告诉|给).{0,12}(电话|手机|号码)|phone number/, label: '客户选了微信后仍要电话' }],
+      mustNotMatch: [{ turn: 1, re: /(方便|麻烦|请|可以|能否|能不能).{0,10}(留|提供|告诉|给我?).{0,8}(电话|手机号?)/, unless: /(不会|不用|无需|不必|不打).{0,8}电话/, label: '客户选了微信后仍要电话' }],
     },
     judge: ['客户只留微信、说不方便接电话：接受微信作为联系方式并确认预约申请已提交，没有坚持要电话，也没有承诺具体日期时间', J_FACTS, J_TONE],
   },
@@ -422,7 +423,11 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'human-wechat-zh', category: '联系方式选择', title: '要真人、只留微信：转人工，不再要电话', lang: 'zh', extract: true,
     turns: ['我想找真人顾问聊聊，加我微信 wang_test2'],
-    expect: { tools: [{ turn: 0, tool: 'request_human' }], stage: 'handed_to_human', singleLead: true, freshSummary: true, noPersonalAskAt: [0], noOwnContactAt: [0] },
+    expect: {
+      tools: [{ turn: 0, tool: 'request_human' }], stage: 'handed_to_human', singleLead: true, freshSummary: true, noOwnContactAt: [0],
+      // asking how to address the customer is fine (no name was given); asking for a phone or email again is not
+      mustNotMatch: [{ turn: 0, re: /(方便|麻烦|请|可以|能否|能不能).{0,10}(留|提供|告诉|给我?).{0,8}(电话|手机号?|邮箱|号码)/, label: '客户只留微信后又要电话或邮箱' }],
+    },
     judge: ['确认会有顾问通过微信联系，没有再索要电话或邮箱，没有承诺具体回复时间', J_TONE],
   },
 

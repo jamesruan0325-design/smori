@@ -2,6 +2,7 @@
  * Headless pipeline, mainly for the end-to-end test.
  *
  *   npm run cli -- check
+ *   npm run cli -- leads-before-rollback   (before rolling the backend back past the contact_pending stage)
  *   npm run cli -- setup
  *   npm run cli -- e2e --product Silhouette --category sheer --location "Irvine, CA" \
  *        --room "Living Room" --date 2026-09-01 --notes "..." --photos ./photos/*.jpg [--dry-run] [--skip-claude]
@@ -35,6 +36,13 @@ async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
   const log = (m: string) => console.log(`  ${m}`);
+
+  if (cmd === 'leads-before-rollback') {
+    // run BEFORE deploying a backend version without the contact_pending stage (see docs/09)
+    const { downgradeContactPending } = await import('./leads.js');
+    console.log(`contact_pending -> new: ${await downgradeContactPending()} lead(s)`);
+    return;
+  }
 
   if (cmd === 'check') {
     console.log(`Claude:  ${claudeConfigured() ? `configured (${config.claudeModel})` : 'ANTHROPIC_API_KEY missing'}`);
