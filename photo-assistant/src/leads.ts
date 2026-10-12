@@ -21,6 +21,12 @@ export function contactPreference(v: unknown): ContactPreference | undefined {
 
 export const SALES_SOURCE = 'AI Sales Agent';
 
+/**
+ * Lead file format version. Files without it were written by an earlier version (before the
+ * contact_pending stage) and are brought up to date once by migrateLeads() at startup.
+ */
+export const LEAD_SCHEMA = 2;
+
 export interface PageContext { url?: string; referrer?: string; utm?: Record<string, string> }
 
 export interface Lead {
@@ -34,7 +40,9 @@ export interface Lead {
   reason: 'quote' | 'measurement' | 'human' | 'question' | 'consultation' | 'other';
   language: 'zh' | 'en';
   stage?: Stage;
-  stage_history?: { stage: Stage; at: string; by: 'agent' | 'staff' }[];
+  stage_history?: { stage: Stage; at: string; by: 'agent' | 'staff' | 'migration' }[];
+  /** File format version (LEAD_SCHEMA); missing on files written before the contact_pending stage. */
+  schema?: number;
   /** Stages a push notification was delivered for (each stage pushes at most once). */
   notified?: Stage[];
   /**
@@ -82,7 +90,9 @@ export function hasContact(l: Partial<Lead>): boolean {
 const newId = (now: Date) => `${now.toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(3).toString('hex')}`;
 const convKey = (conversationId: string) => crypto.createHash('sha256').update(conversationId).digest('hex').slice(0, 12);
 
-async function writeLead(lead: Lead): Promise<void> {
+/** Writes atomically. Every write by this version stamps the file format version, unless `stamp` is false (rollback). */
+async function writeLead(lead: Lead, stamp = true): Promise<void> {
+  if (stamp) lead.schema = LEAD_SCHEMA;
   await fs.mkdir(dir(), { recursive: true });
   const file = path.join(dir(), `${lead.id}.json`);
   const tmp = `${file}.${process.pid}.tmp`;
@@ -420,19 +430,68 @@ export async function retryFailedPushes(opts: { notify?: Notifier; now?: () => D
 }
 
 /**
- * Before rolling the backend back to a version without the contact_pending stage: that version reads an
- * unknown stage as "转人工" and would push it. This turns contact_pending into new (already notified, so
- * nothing is pushed again). Run with: npm run cli -- leads-before-rollback
+ * One-time upgrade of lead files written by the previous version (no `schema`), run at startup
+ * before any request is served. It never pushes and never raises a lead to a higher intent:
+ *  - an unknown or missing stage reads as before (legacy leads: 转人工; sales leads: new);
+ *  - a sales lead at "new" that already has a phone / email / WeChat becomes contact_pending
+ *    (有联系方式、待跟进; not a confirmed need, not buying intent), unless staff set "new" by hand;
+ *  - its current stage (and contact_pending when it has contact details) is recorded as already
+ *    notified, so neither the next customer message nor the push retry re-sends history;
+ *    later real progress (a need, a booking, a person request) still pushes as usual.
+ * Idempotent: migrated files carry `schema` and are skipped next time. `dryRun` only counts.
+ */
+export async function migrateLeads(opts: { dryRun?: boolean; now?: () => Date } = {}): Promise<{ checked: number; migrated: number; toContactPending: number; ids: string[] }> {
+  const at = (opts.now ?? (() => new Date()))().toISOString();
+  let files: string[];
+  try { files = (await fs.readdir(dir())).filter((f) => f.endsWith('.json')); } catch { return { checked: 0, migrated: 0, toContactPending: 0, ids: [] }; }
+  const out = { checked: files.length, migrated: 0, toContactPending: 0, ids: [] as string[] };
+  for (const f of files) {
+    let raw: Lead;
+    try { raw = JSON.parse(await fs.readFile(path.join(dir(), f), 'utf8')) as Lead; } catch { continue; }
+    if (raw.schema === LEAD_SCHEMA || !raw.id) continue;
+    await withLock(raw.conversationId, async () => {
+      const lead = normalizeLead(JSON.parse(await fs.readFile(path.join(dir(), f), 'utf8')) as Lead);
+      if (lead.schema === LEAD_SCHEMA) return;
+      const last = lead.stage_history?.at(-1);
+      const staffSetNew = last?.by === 'staff' && last.stage === 'new';
+      if (lead.lead_source === SALES_SOURCE && lead.stage === 'new' && hasContact(lead) && !staffSetNew) {
+        lead.stage = 'contact_pending';
+        lead.stage_history = [...(lead.stage_history ?? []), { stage: 'contact_pending', at, by: 'migration' }];
+        out.toContactPending++;
+      }
+      const known = new Set(lead.notified ?? []);
+      if (lead.stage && lead.stage !== 'new') known.add(lead.stage);
+      if (hasContact(lead)) known.add('contact_pending');
+      lead.notified = [...known];
+      delete lead.push_pending;
+      out.migrated++;
+      out.ids.push(lead.id);
+      if (!opts.dryRun) await writeLead(lead);
+    });
+  }
+  return out;
+}
+
+/**
+ * Before rolling the backend back to a version without the contact_pending stage (main 46c7783 or
+ * earlier): that version reads an unknown stage as "转人工" and would push it. This turns
+ * contact_pending into new (already notified, so nothing is pushed again) and removes the format
+ * version, so migrateLeads() brings these files up to date again after a later re-deploy.
+ * Run with: npm run cli -- leads-before-rollback
  */
 export async function downgradeContactPending(): Promise<number> {
   let changed = 0;
   for (const l of await listLeads(100_000)) {
     if (l.stage !== 'contact_pending') continue;
-    await staffUpdate(l.id, (lead) => {
+    await withLock(l.conversationId, async () => {
+      const lead = await readLead(l.id);
       if (lead.stage !== 'contact_pending') return;
       lead.stage = 'new';
-      lead.stage_history = [...(lead.stage_history ?? []), { stage: 'new', at: new Date().toISOString(), by: 'staff' }];
+      lead.stage_history = [...(lead.stage_history ?? []), { stage: 'new', at: new Date().toISOString(), by: 'migration' }];
+      lead.notified = [...new Set([...(lead.notified ?? []), 'contact_pending' as Stage])];
       delete lead.push_pending;
+      delete lead.schema;
+      await writeLead(lead, false);
       changed++;
     });
   }

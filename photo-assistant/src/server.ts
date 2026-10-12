@@ -14,7 +14,7 @@ import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConf
 import { approveAndPublish, diskStatus, finalizeProject, ingestPhoto, pruneStorage, readLog, runAutoCycle, startScheduler } from './auto.js';
 import { notifyConfigured, sendNtfy } from './notify.js';
 import { proxyAuth, handleChat, handleLead, handlePing, rateLimitDiagnostics } from './proxy.js';
-import { leadsToCsv, listLeads, markLead, pushStatus, retryFailedPushes, setLeadStage, STAGES, type Stage } from './leads.js';
+import { LEAD_SCHEMA, leadsToCsv, listLeads, markLead, migrateLeads, pushStatus, retryFailedPushes, setLeadStage, STAGES, type Stage } from './leads.js';
 import { checkPromotions, readPromoState, setPromotionLive, startPromotionScheduler, SOURCES } from './promotions.js';
 import { getMetaobjectStatus, adminUrlFor, PROMOTION_TYPE } from './shopify.js';
 import { claudeConfigured } from './copy.js';
@@ -288,6 +288,12 @@ app.get('/files/:id/:kind/:name', wrap(async (req, res) => {
   const name = path.basename(param(req, 'name'));
   res.sendFile(photoPath(param(req, 'id'), kind, name));
 }));
+
+// lead files from the previous version are brought up to date before any request is served (never pushes)
+try {
+  const m = await migrateLeads();
+  if (m.migrated) console.log(`leads migrated to schema ${LEAD_SCHEMA}: ${m.migrated} of ${m.checked} (${m.toContactPending} -> contact_pending, no pushes)`);
+} catch (e) { console.error('lead migration failed', (e as Error).message); }
 
 startScheduler();
 if (config.autoEnabled) startPromotionScheduler();

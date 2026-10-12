@@ -2,6 +2,7 @@
  * Headless pipeline, mainly for the end-to-end test.
  *
  *   npm run cli -- check
+ *   npm run cli -- leads-migrate [--dry-run]   (also runs at server startup)
  *   npm run cli -- leads-before-rollback   (before rolling the backend back past the contact_pending stage)
  *   npm run cli -- setup
  *   npm run cli -- e2e --product Silhouette --category sheer --location "Irvine, CA" \
@@ -36,6 +37,15 @@ async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
   const log = (m: string) => console.log(`  ${m}`);
+
+  if (cmd === 'leads-migrate') {
+    // the server runs this at startup; --dry-run lists what would change without writing
+    const { migrateLeads } = await import('./leads.js');
+    const r = await migrateLeads({ dryRun: Boolean(args['dry-run']) });
+    console.log(`${args['dry-run'] ? '[dry run] ' : ''}checked ${r.checked}, migrated ${r.migrated}, -> contact_pending ${r.toContactPending}`);
+    for (const id of r.ids) console.log(`  ${id}`);
+    return;
+  }
 
   if (cmd === 'leads-before-rollback') {
     // run BEFORE deploying a backend version without the contact_pending stage (see docs/09)

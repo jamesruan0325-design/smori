@@ -270,7 +270,8 @@ test('rollback safety: an unknown stage on a sales lead reads as new (never è½¬ä
   assert.ok(n >= 1);
   const d = (await getConversationLead('conv-downgrade-01'))!;
   assert.equal(d.stage, 'new');
-  assert.equal(d.stage_history!.at(-1)!.by, 'staff');
+  assert.equal(d.stage_history!.at(-1)!.by, 'migration');
+  assert.equal(d.schema, undefined, 'format version removed so a later re-deploy migrates it again');
   assert.equal((await listLeads()).filter((x) => x.stage === 'contact_pending').length, 0);
 });
 

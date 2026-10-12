@@ -251,6 +251,22 @@ export const claudeExtractor: Extractor = async (history) => {
 
 const PRODUCT_NAMES = [...PRODUCTS.map((p) => p.name as string), 'Plantation Shutters'];
 
+/* High intent comes only from the customer's own words, never from a contact detail alone: the extractor's
+   "agreed to book" / "wants a person" is kept only when the customer actually asked for it. */
+const BOOKING_CUE = /(预约|约(个|一下)?时间|上门|测量|量尺|量一下|来家里|安排(时间|上门|顾问|一下)|购买|下单|想买|就选|定了|\bbook|appointment|consultation|\bmeasur|\bvisit|\bschedule|come (out|over|by)|in-home|get started|next step|\bbuy\b|purchase|\border\b|go with)/i;
+const AFFIRM_RE = /^\s*(yes|yeah|yep|sure|ok(ay)?|please|sounds good|let'?s|go ahead|好|好的|可以|行|嗯|没问题|麻烦|那就)/i;
+const INVITE_RE = /(预约|上门|咨询|测量|consultation|visit|book|appointment|measur)/i;
+const PERSON_CUE = /(人工|真人|客服|销售|顾问.{0,8}(联系|打|电话|找我)|联系我|打给我|给我打电话|找人|\bperson\b|\bhuman\b|representative|\bagent\b|sales ?(rep|person)|someone (to )?(call|contact|reach)|call me|contact me|reach me|reach out to me)/i;
+
+/** The customer asked for a consultation / visit / measurement or to buy, or said yes when we invited them. */
+export function customerAskedToBook(history: ChatMessage[]): boolean {
+  return history.some((m, i) => m.role === 'user' && (BOOKING_CUE.test(m.content) || (history[i - 1]?.role === 'assistant' && INVITE_RE.test(history[i - 1].content) && AFFIRM_RE.test(m.content))));
+}
+/** The customer asked for a person or to be contacted. */
+export function customerAskedForPerson(history: ChatMessage[]): boolean {
+  return history.some((m) => m.role === 'user' && PERSON_CUE.test(m.content));
+}
+
 /** Turns extractor output into a safe patch: validated formats, contact data only if the customer typed it, known products only. */
 export function sanitizeExtraction(x: Extracted, history: ChatMessage[]): LeadPatch {
   const phone = validPhone(x.phone);
@@ -274,8 +290,8 @@ export function sanitizeExtraction(x: Extracted, history: ChatMessage[]): LeadPa
     motorization_interest: str(x.motorization_interest, 80),
     budget_range: str(x.budget_range, 80),
     products_recommended: [...new Set(products)],
-    consultation_interest: x.consultation_interest,
-    wants_human: x.wants_human === true ? true : undefined,
+    consultation_interest: x.consultation_interest === 'yes' && !customerAskedToBook(history) ? 'unknown' : x.consultation_interest,
+    wants_human: x.wants_human === true && customerAskedForPerson(history) ? true : undefined,
     needs_summary: str(x.summary, 600),
   };
 }

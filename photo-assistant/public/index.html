@@ -176,7 +176,7 @@ function leadCard(l) {
       ${leadField('预约意向', l.consultation_interest && ({yes:'是',no:'否',unknown:'未谈到'})[l.consultation_interest])}${leadField('希望时间', l.preferred_time)}${leadField('来源页面', l.page && l.page.url)}${leadField('UTM', l.page && l.page.utm && Object.entries(l.page.utm).map(([k,v])=>k+'='+v).join(' '))}
     </div>
     ${l.interest || l.notes ? `<div style="margin-top:6px;color:var(--muted)">${esc(l.interest||'')} ${esc(l.notes||'')}</div>` : ''}
-    ${l.stage_history && l.stage_history.length ? `<div style="margin-top:6px;font-size:12px;color:var(--muted)">${l.stage_history.map(h => `${esc(STAGE_ZH[h.stage]||h.stage)} ${esc(h.at.replace('T',' ').slice(5,16))}${h.by==='staff'?'（手动）':''}`).join(' → ')}</div>` : ''}
+    ${l.stage_history && l.stage_history.length ? `<div style="margin-top:6px;font-size:12px;color:var(--muted)">${l.stage_history.map(h => `${esc(STAGE_ZH[h.stage]||h.stage)} ${esc(h.at.replace('T',' ').slice(5,16))}${h.by==='staff'?'（手动）':h.by==='migration'?'（版本升级）':''}`).join(' → ')}</div>` : ''}
     ${l.transcript && l.transcript.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--gold);font-size:12px">查看对话（${l.transcript.length} 条）</summary><div class="log">${l.transcript.map(m => (m.role==='user'?'客户：':'助手：') + esc(m.content)).join('\n')}</div></details>` : ''}
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font-size:12px;color:var(--muted)">阶段</span>${stageSel}
       <button class="btn small" onclick="api('/api/leads/${l.id}/handled',{method:'POST',body:{handled:${l.handled?'false':'true'}}}).then(()=>showLeads())">${l.handled?'标记为未处理':'标记为已处理'}</button></div>
