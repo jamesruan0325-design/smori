@@ -463,3 +463,28 @@ test('rate-limit diagnostics count visitors, conversations and header shapes wit
     for (const k of Object.keys(proxy.salesDeps)) delete (proxy.salesDeps as any)[k];
   }
 });
+
+test('talking to a person: the tool is called at once, even before contact details; the reply is written after tool results', () => {
+  const p = sales.SALES_SYSTEM;
+  assert.match(p, /call request_human right away in this same turn, even if they have not given any contact details yet/);
+  assert.match(p, /12b\. When you call a tool, do not write anything to the customer before the call; write your whole reply after the result comes back\./);
+});
+
+test('tool loop: text written before a tool call is kept when nothing is written after it', async () => {
+  const { runToolLoop } = await import('../src/chat.js');
+  const replies = [
+    { content: [{ type: 'text', text: 'May I have your name and the best way to reach you?', citations: null }, { type: 'tool_use', id: 'tu_1', name: 'request_human', input: { reason: 'wants a person' } }], stop_reason: 'tool_use' },
+    { content: [], stop_reason: 'end_turn' },
+  ];
+  const create = async () => ({ id: 'm', type: 'message', role: 'assistant', model: 'stub', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 }, ...replies.shift()! }) as any;
+  const out = await runToolLoop({ system: 's', tools: [], history: [{ role: 'user', content: 'Can I speak with a sales representative?' }], create, onTool: async () => ({ content: 'ok' }) });
+  assert.equal(out.text, 'May I have your name and the best way to reach you?');
+  // normal case: the reply after the tool result is used as is
+  const replies2 = [
+    { content: [{ type: 'text', text: 'Let me check.', citations: null }, { type: 'tool_use', id: 'tu_1', name: 'check_service_area', input: { zip: '92618' } }], stop_reason: 'tool_use' },
+    { content: [{ type: 'text', text: '92618 is within our service area.', citations: null }], stop_reason: 'end_turn' },
+  ];
+  const create2 = async () => ({ id: 'm', type: 'message', role: 'assistant', model: 'stub', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 }, ...replies2.shift()! }) as any;
+  const out2 = await runToolLoop({ system: 's', tools: [], history: [{ role: 'user', content: '92618' }], create: create2, onTool: async () => ({ content: 'ok' }) });
+  assert.equal(out2.text, '92618 is within our service area.');
+});

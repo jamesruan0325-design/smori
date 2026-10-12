@@ -99,6 +99,7 @@ export async function runToolLoop(o: ToolLoopOptions): Promise<ToolLoopResult> {
   const create = o.create ?? defaultCreate;
   const messages: Anthropic.Beta.BetaMessageParam[] = o.history.map((m) => ({ role: m.role, content: m.content }));
   let model: string | undefined;
+  let beforeTools = ''; // text the model wrote before a tool call; used only if nothing comes after it
   for (let round = 0; round < (o.maxRounds ?? 3); round++) {
     const response = await create({
       model: o.model ?? config.chatModel,
@@ -115,7 +116,8 @@ export async function runToolLoop(o: ToolLoopOptions): Promise<ToolLoopResult> {
     if (response.stop_reason === 'refusal') return { text: '', refused: true, model };
     const toolUses = response.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
     const text = response.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
-    if (!toolUses.length || response.stop_reason !== 'tool_use') return { text, model };
+    if (!toolUses.length || response.stop_reason !== 'tool_use') return { text: text || beforeTools, model };
+    if (text) beforeTools = text;
 
     messages.push({ role: 'assistant', content: response.content });
     const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
