@@ -14,7 +14,7 @@ import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConf
 import { approveAndPublish, diskStatus, finalizeProject, ingestPhoto, pruneStorage, readLog, runAutoCycle, startScheduler } from './auto.js';
 import { notifyConfigured, sendNtfy } from './notify.js';
 import { proxyAuth, handleChat, handleLead, handlePing, rateLimitDiagnostics } from './proxy.js';
-import { LEAD_SCHEMA, leadsToCsv, listLeads, markLead, migrateLeads, pushStatus, retryFailedPushes, setLeadStage, STAGES, type Stage } from './leads.js';
+import { FOLLOWUP_STATUSES, LEAD_SCHEMA, leadsToCsv, listLeads, markLead, migrateLeads, pushStatus, retryFailedPushes, setFollowupStatus, setLeadStage, STAGES, type FollowupStatus, type Stage } from './leads.js';
 import { checkPromotions, readPromoState, setPromotionLive, startPromotionScheduler, SOURCES } from './promotions.js';
 import { getMetaobjectStatus, adminUrlFor, PROMOTION_TYPE } from './shopify.js';
 import { claudeConfigured } from './copy.js';
@@ -184,6 +184,13 @@ app.get('/api/leads.csv', wrap(async (req, res) => {
   res.send(csv);
 }));
 app.post('/api/leads/:id/handled', wrap(async (req, res) => { await markLead(param(req, 'id'), Boolean(req.body?.handled ?? true)); res.json({ ok: true }); }));
+// staff follow-up status (待跟进 / 已联系 / 已预约 / 已报价 / 成交 / 未成交): saved on the lead only, nothing is sent to anyone
+app.post('/api/leads/:id/followup', wrap(async (req, res) => {
+  const status = String(req.body?.status ?? '') as FollowupStatus;
+  if (!FOLLOWUP_STATUSES.includes(status)) throw new Error(`status must be one of ${FOLLOWUP_STATUSES.join(', ')}`);
+  const lead = await setFollowupStatus(param(req, 'id'), status);
+  res.json({ ok: true, followup_status: lead.followup_status });
+}));
 app.post('/api/leads/:id/stage', wrap(async (req, res) => {
   const stage = stageParam(req.body?.stage);
   if (!stage) { res.status(400).json({ error: `stage must be one of ${STAGES.join(', ')}` }); return; }

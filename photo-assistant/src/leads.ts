@@ -9,6 +9,15 @@ export const STAGES = ['new', 'contact_pending', 'qualified', 'consultation_requ
 export type Stage = (typeof STAGES)[number];
 export const STAGE_LABEL_ZH: Record<Stage, string> = { new: '新线索', contact_pending: '有联系方式、待跟进', qualified: '已确认需求', consultation_requested: '申请预约咨询', handed_to_human: '转人工' };
 
+/**
+ * Sales follow-up status, set by staff in the admin page (separate from the AI `stage`, which tracks
+ * what the customer asked for). New leads start at pending; won / lost close a lead but can be
+ * changed back. Changing it never contacts the customer and never sends a push.
+ */
+export const FOLLOWUP_STATUSES = ['pending', 'contacted', 'booked', 'quoted', 'won', 'lost'] as const;
+export type FollowupStatus = (typeof FOLLOWUP_STATUSES)[number];
+export const FOLLOWUP_LABEL_ZH: Record<FollowupStatus, string> = { pending: '待跟进', contacted: '已联系', booked: '已预约', quoted: '已报价', won: '成交', lost: '未成交' };
+
 /** How the customer wants to be reached; the customer chooses, none is required. */
 export const CONTACT_PREFERENCES = ['phone', 'sms', 'email', 'wechat'] as const;
 export type ContactPreference = (typeof CONTACT_PREFERENCES)[number];
@@ -43,6 +52,10 @@ export interface Lead {
   stage_history?: { stage: Stage; at: string; by: 'agent' | 'staff' | 'migration' }[];
   /** File format version (LEAD_SCHEMA); missing on files written before the contact_pending stage. */
   schema?: number;
+  /** Staff follow-up status; leads saved before it existed read as pending, or contacted if marked handled. */
+  followup_status?: FollowupStatus;
+  followup_updated_at?: string;
+  followup_history?: { status: FollowupStatus; at: string }[];
   /** Stages a push notification was delivered for (each stage pushes at most once). */
   notified?: Stage[];
   /**
@@ -118,7 +131,7 @@ function contactLine(l: Lead): string {
 export async function saveLead(input: Omit<Lead, 'id' | 'createdAt'>, notify: Notifier = ntfyNotify): Promise<Lead> {
   if (!hasContact(input)) throw new Error('a phone number, email or WeChat ID is required');
   const now = new Date();
-  const lead: Lead = { id: newId(now), createdAt: now.toISOString(), lead_source: 'AI Assistant', stage: 'handed_to_human', ...input };
+  const lead: Lead = { id: newId(now), createdAt: now.toISOString(), lead_source: 'AI Assistant', stage: 'handed_to_human', followup_status: 'pending', ...input };
   lead.stage_history ??= [{ stage: lead.stage!, at: lead.createdAt, by: 'agent' }];
   // same rule as the sales leads: saved first, recorded as sent only once delivered, retried otherwise
   const pending: NonNullable<Lead['push_pending']> = { stage: lead.stage!, since: lead.createdAt, attempts: 0 };
@@ -139,6 +152,11 @@ export async function saveLead(input: Omit<Lead, 'id' | 'createdAt'>, notify: No
 /** Old leads (before stages existed) were all contact-form / human follow-ups. An unknown stage on a sales lead (written by a newer version) reads as new, never as a person request. */
 export function normalizeLead(l: Lead): Lead {
   if (!l.stage || !STAGES.includes(l.stage)) l.stage = l.stage && l.lead_source === SALES_SOURCE ? 'new' : 'handed_to_human';
+  // the follow-up status and the old 已处理 flag move together; a file without the status, or whose flag was
+  // changed by the previous version (rollback), reads as 已联系 when handled and 待跟进 when not
+  if (!l.followup_status || !FOLLOWUP_STATUSES.includes(l.followup_status) || (l.followup_status !== 'pending') !== Boolean(l.handled)) {
+    l.followup_status = l.handled ? 'contacted' : 'pending';
+  }
   if (!l.lead_source) l.lead_source = l.source === 'form' ? 'AI Assistant (form)' : 'AI Assistant';
   return l;
 }
@@ -167,12 +185,33 @@ async function staffUpdate(id: string, fn: (lead: Lead) => void): Promise<Lead> 
   });
 }
 
-/** Marking a lead handled also stops retrying its push (someone is already on it). */
+function applyFollowup(lead: Lead, status: FollowupStatus, at: string): void {
+  if (lead.followup_status !== status) lead.followup_history = [...(lead.followup_history ?? []), { status, at }];
+  lead.followup_status = status;
+  lead.followup_updated_at = at;
+  // kept in step with the status: anything past pending means someone is on it (as "已处理" did)
+  lead.handled = status !== 'pending';
+  if (lead.handled) delete lead.push_pending;
+}
+
+/** Marking a lead handled also stops retrying its push (someone is already on it). Kept for the old button: handled = 已联系, not handled = 待跟进. */
 export async function markLead(id: string, handled: boolean): Promise<void> {
   await staffUpdate(id, (lead) => {
-    lead.handled = handled;
-    if (handled) delete lead.push_pending;
-    lead.updatedAt = new Date().toISOString();
+    const at = new Date().toISOString();
+    if (!handled) applyFollowup(lead, 'pending', at);
+    else if (lead.followup_status === 'pending') applyFollowup(lead, 'contacted', at);
+    else { lead.handled = true; delete lead.push_pending; }
+    lead.updatedAt = at;
+  });
+}
+
+/** Staff sets the follow-up status (any status, any direction). Only the status changes: no message to the customer, no push. */
+export async function setFollowupStatus(id: string, status: FollowupStatus): Promise<Lead> {
+  if (!FOLLOWUP_STATUSES.includes(status)) throw new Error(`unknown follow-up status ${status}`);
+  return staffUpdate(id, (lead) => {
+    const at = new Date().toISOString();
+    applyFollowup(lead, status, at);
+    lead.updatedAt = at;
   });
 }
 
@@ -222,7 +261,7 @@ export function computeStage(l: Partial<Lead>, signals: StageSignals = {}): Stag
   return null;
 }
 
-export type LeadPatch = Partial<Omit<Lead, 'id' | 'createdAt' | 'conversationId' | 'stage' | 'stage_history' | 'notified'>>;
+export type LeadPatch = Partial<Omit<Lead, 'id' | 'createdAt' | 'conversationId' | 'stage' | 'stage_history' | 'notified' | 'followup_status' | 'followup_updated_at' | 'followup_history'>>;
 
 const MERGE_SKIP = new Set(['products_recommended', 'transcript', 'page', 'consultation_interest', 'wants_human', 'summary']);
 
@@ -374,6 +413,7 @@ export function upsertConversationLead(conversationId: string, patch: LeadPatch,
       lead_source: SALES_SOURCE,
       reason: 'other',
       language: opts.language ?? 'en',
+      followup_status: 'pending',
     };
     const merged = mergeLead(base, patch);
     if (opts.signals?.human) merged.wants_human = true;
@@ -503,7 +543,7 @@ export function zipInServiceArea(zip: string, prefixes = config.serviceZipPrefix
   return /^\d{5}(-\d{4})?$/.test(z) && prefixes.some((p) => z.startsWith(p));
 }
 
-const CSV_COLUMNS = ['id', 'createdAt', 'updatedAt', 'stage', 'lead_source', 'name', 'phone', 'email', 'wechat', 'contact_preference', 'zip', 'zip_in_area', 'city', 'room_type', 'window_count', 'approximate_size', 'primary_need', 'motorization_interest', 'budget_range', 'products_recommended', 'consultation_interest', 'preferred_time', 'summary', 'notes', 'language', 'handled', 'page_url', 'utm'] as const;
+const CSV_COLUMNS = ['id', 'createdAt', 'updatedAt', 'stage', 'lead_source', 'name', 'phone', 'email', 'wechat', 'contact_preference', 'zip', 'zip_in_area', 'city', 'room_type', 'window_count', 'approximate_size', 'primary_need', 'motorization_interest', 'budget_range', 'products_recommended', 'consultation_interest', 'preferred_time', 'summary', 'notes', 'language', 'handled', 'followup_status', 'page_url', 'utm'] as const;
 
 export function leadsToCsv(leads: Lead[]): string {
   const cell = (v: unknown) => {
@@ -512,7 +552,7 @@ export function leadsToCsv(leads: Lead[]): string {
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const rows = leads.map((l) => CSV_COLUMNS.map((c) => cell(
-    c === 'page_url' ? l.page?.url : c === 'utm' ? (l.page?.utm ? Object.entries(l.page.utm).map(([k, v]) => `${k}=${v}`).join('&') : '') : (l as unknown as Record<string, unknown>)[c],
+    c === 'followup_status' ? FOLLOWUP_LABEL_ZH[l.followup_status ?? (l.handled ? 'contacted' : 'pending')] : c === 'page_url' ? l.page?.url : c === 'utm' ? (l.page?.utm ? Object.entries(l.page.utm).map(([k, v]) => `${k}=${v}`).join('&') : '') : (l as unknown as Record<string, unknown>)[c],
   )).join(','));
   return '﻿' + [CSV_COLUMNS.join(','), ...rows].join('\r\n') + '\r\n';
 }
