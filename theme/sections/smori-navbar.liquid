@@ -10,6 +10,9 @@
           <a href="{{ section.settings[url_key] }}" class="nav-link">{{ section.settings[text_key] }}</a>
         {% endif %}
       {% endfor %}
+      {% if section.settings.promotions_text != blank %}
+        <a href="{{ section.settings.promotions_url | default: '/#promotions' }}" class="nav-link">{{ section.settings.promotions_text }}</a>
+      {% endif %}
       <a href="{{ section.settings.cta_url | default: '#contact' }}" class="nav-link nav-cta">{{ section.settings.cta_text | default: 'Book Consultation' }}</a>
     </div>
 
@@ -38,6 +41,8 @@
     { "type": "text", "id": "link2_url", "label": "Link 2 URL", "default": "/pages/installations" },
     { "type": "text", "id": "link3_text", "label": "Link 3 text" },
     { "type": "text", "id": "link3_url", "label": "Link 3 URL" },
+    { "type": "text", "id": "promotions_text", "label": "Promotions link text", "default": "Promotions", "info": "Leave empty to hide the link." },
+    { "type": "text", "id": "promotions_url", "label": "Promotions link URL", "default": "/#promotions" },
     { "type": "text", "id": "cta_text", "label": "Button text", "default": "Book Consultation" },
     { "type": "text", "id": "cta_url", "label": "Button URL", "default": "#contact" }
   ],
