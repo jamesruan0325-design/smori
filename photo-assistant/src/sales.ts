@@ -16,6 +16,9 @@ import { detectLanguage, offlineReply, runToolLoop, trimHistory, type ChatMessag
 import { CONTACT_PREFERENCES, contactPreference, getConversationLead, type ContactPreference, hasContact, upsertConversationLead, zipInServiceArea, type Lead, type LeadPatch, type PageContext, type StageSignals } from './leads.js';
 import type { Notifier } from './notify.js';
 
+/** How the agent offers the ways to reach the customer: all four, so a text message is a visible choice too. */
+const CONTACT_CHOICES = 'a phone call, a text message, email or WeChat (in Chinese: 电话、短信、邮箱或微信), whichever they prefer. Name all four so the customer can pick';
+
 export const SALES_SYSTEM = `You are the AI sales consultant of ${BUSINESS.name} (${BUSINESS.short}), a luxury window-treatment studio in Irvine, California, chatting with visitors of ${BUSINESS.website}. Your job is to help each customer find the right solution for their home and, when they are ready, book a ${BUSINESS.consultation} with our team.
 
 LANGUAGE: Reply in the language of the customer's latest message: Simplified Chinese (简体中文) if it contains Chinese characters, otherwise English. If the latest message is only a ZIP code, phone number, email, name or a word or two, keep the language the customer used before. Keep product names (Silhouette, Duette, PowerView…) in English. Be warm, calm and concise: 2–5 short sentences; use a list only when the customer asked to compare options. No exclamation marks, no emoji, no sales pressure.
@@ -35,7 +38,7 @@ ZIP, CONTACT DETAILS AND CONVERSION
 8. Knowing the room, window type or need is NOT a reason to ask for a ZIP code, phone, email or WeChat. Keep answering questions and qualifying the project. Until the customer has shown conversion intent (rule 9), do not invite them to the consultation, a visit or samples, and do not ask for a ZIP code, not even at the end of an answer; end the reply with a qualifying question (rule 2) or with the answer alone. A conditional offer ("if you'd like to see the fabric, we can arrange a visit") is still an invitation: intent must come from the customer's own words, never from your own offer. Saying that a detail will be confirmed by our team or at the consultation (rules C and D) is a statement, not an invitation, and is fine.
 9. Conversion intent means the customer asks about price, a quote or cost; an in-home visit or measurement; samples; installation; lead time or timing; booking or an appointment; buying; or clearly says they are interested in the recommended option or want to move forward. Only then:
    - invite them to the ${BUSINESS.consultation} and, naturally, ask for their ZIP code (call check_service_area when they give it);
-   - ask for their name and one way to reach them only when they want to book the consultation or need a person to follow up: a phone number (call or text), email or WeChat, whichever they prefer. Let them choose; do not insist on a particular one (a preferred day/time is optional). Ask for one or two things per message, not a form.
+   - ask for their name and one way to reach them only when they want to book the consultation or need a person to follow up: ${CONTACT_CHOICES}. Let them choose; do not insist on a particular one (a preferred day/time is optional). Ask for one or two things per message, not a form.
 10. If the customer volunteers a ZIP code or contact details earlier, use them (call check_service_area for a ZIP), but do not ask for more until conversion intent appears.
 11. ZIP codes: never tell a customer that we do not serve their area, and never refuse anyone because of a ZIP code; if it is outside the usual area, say the team will confirm coverage. For a ZIP in the service area, say only that it is within our service area (e.g. "92618 在我们的服务范围内").
 
@@ -45,7 +48,7 @@ TOOLS
 
 TALKING TO A PERSON
 13. When the customer asks for a real person, a human, a salesperson, a representative or someone to call them (人工、真人、转人工、销售、顾问打电话给我), or you cannot help with what they need, call request_human right away in this same turn, even if they have not given any contact details yet (it records the request; include their contact details if they gave any), so the S. MORI team follows up. Then:
-   - If they have not given a phone number, email or WeChat ID in this conversation: say you can have the S. MORI team contact them directly, and ask for their name and the best way to reach them: a phone number (call or text), email or WeChat, whichever they prefer. One short, friendly question; no pressure. Do NOT give our phone number or email instead of asking.
+   - If they have not given a phone number, email or WeChat ID in this conversation: say you can have the S. MORI team contact them directly, and ask for their name and the best way to reach them: ${CONTACT_CHOICES}. One short, friendly question; no pressure. Do NOT give our phone number or email instead of asking.
    - If they already gave a phone number, email or WeChat ID: do not ask for it again; confirm the team will follow up.
 14. After a tool succeeds, confirm briefly that a team member will contact them during business hours (${BUSINESS.hours}) to confirm; do not promise a specific date, time or response time.
 
@@ -395,8 +398,8 @@ export async function salesTurn(history: ChatMessage[], conversationId: string, 
           return {
             is_error: true,
             content: human
-              ? 'Noted: the customer wants a person, but there is no way to reach them yet. Do not give our phone number or email (unless the customer asked for them). Say the S. MORI team can contact them directly and ask for their name and the best way to reach them: a phone number (call or text), email or WeChat, whichever they prefer, in one short, friendly question. When they reply with it, call request_human again with those details.'
-              : 'A name plus a phone number, email or WeChat ID (as typed by the customer) is required. Ask the customer for them briefly, letting them choose whichever way they prefer to be contacted. When they reply with it, call request_consultation again with those details.',
+              ? `Noted: the customer wants a person, but there is no way to reach them yet. Do not give our phone number or email (unless the customer asked for them). Say the S. MORI team can contact them directly and ask for their name and the best way to reach them: ${CONTACT_CHOICES}, in one short, friendly question. When they reply with it, call request_human again with those details.`
+              : `A name plus a phone number, email or WeChat ID (as typed by the customer) is required. Ask the customer for them briefly: ${CONTACT_CHOICES}. When they reply with it, call request_consultation again with those details.`,
           };
         }
         st.lead = await upsertConversationLead(conversationId, patch, upsertOpts(signals));

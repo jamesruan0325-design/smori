@@ -91,7 +91,7 @@ test('the sales prompt still asks for contact details only after conversion inte
   const p = sales.SALES_SYSTEM;
   assert.match(p, /Until the customer has shown conversion intent \(rule 9\), do not invite them to the consultation, a visit or samples, and do not ask for a ZIP code/);
   assert.match(p, /If the customer volunteers a ZIP code or contact details earlier, use them \(call check_service_area for a ZIP\), but do not ask for more until conversion intent appears\./);
-  assert.match(p, /ask for their name and one way to reach them only when they want to book the consultation or need a person to follow up: a phone number \(call or text\), email or WeChat, whichever they prefer\. Let them choose; do not insist on a particular one/);
+  assert.match(p, /ask for their name and one way to reach them only when they want to book the consultation or need a person to follow up: a phone call, a text message, email or WeChat \(in Chinese: 电话、短信、邮箱或微信\), whichever they prefer\. Name all four so the customer can pick\. Let them choose; do not insist on a particular one/);
 });
 
 /* ---------------- push delivery ---------------- */
@@ -312,6 +312,18 @@ test('staff edits and agent updates do not overwrite each other', async () => {
 
 /* ---------------- phone · text · email · WeChat ---------------- */
 
+test('asking how to reach the customer names all four choices: call, text, email, WeChat', async () => {
+  assert.equal((sales.SALES_SYSTEM.match(/电话、短信、邮箱或微信/g) ?? []).length, 2, 'the booking rule and the talk-to-a-person rule');
+  assert.match(sales.SALES_SYSTEM, /a phone call, a text message, email or WeChat/);
+  for (const [tool, input] of [['request_human', { reason: 'wants a person' }], ['request_consultation', { name: 'Amy' }]] as const) {
+    const s = scripted([{ tool: { name: tool, input } }, { text: '方便留下您的称呼和联系方式吗？' }]);
+    await sales.salesTurn([{ role: 'user', content: '我想预约上门测量' }], `conv-choices-${tool.replace('_', '-')}`, undefined, { create: s.create, notify: async () => {} });
+    const r = s.calls[1].messages.at(-1).content[0];
+    assert.equal(r.is_error, true, tool);
+    assert.match(r.content, /电话、短信、邮箱或微信/, `${tool}: the follow-up instruction names all four`);
+  }
+});
+
 test('WeChat: real IDs and phone numbers accepted, labels stripped, names and plain words rejected', () => {
   assert.equal(sales.validWechat('wx_test88'), 'wx_test88');
   assert.equal(sales.validWechat('wxid_abc123'), 'wxid_abc123');
@@ -381,7 +393,7 @@ test('request_consultation accepts WeChat alone and the preferred method; an inv
   const toolResult = s.calls[1].messages.at(-1).content[0];
   assert.equal(toolResult.is_error, true);
   assert.match(toolResult.content, /phone number, email or WeChat ID/);
-  assert.match(toolResult.content, /letting them choose/);
+  assert.match(toolResult.content, /whichever they prefer\. Name all four so the customer can pick/);
   assert.equal(r.cta, 'consultation');
 
   // request_human: an invented WeChat ID is dropped too

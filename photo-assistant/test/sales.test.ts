@@ -426,7 +426,7 @@ test('location answers: only "within our service area", no claims of nearby / re
 
 test('talking to a person: ask for the customer\'s contact instead of giving ours; don\'t re-ask when we have it', async () => {
   const p = sales.SALES_SYSTEM;
-  assert.match(p, /ask for their name and the best way to reach them: a phone number \(call or text\), email or WeChat, whichever they prefer/);
+  assert.match(p, /ask for their name and the best way to reach them: a phone call, a text message, email or WeChat \(in Chinese: 电话、短信、邮箱或微信\), whichever they prefer/);
   assert.match(p, /Do NOT give our phone number or email instead of asking/);
   assert.match(p, /If they already gave a phone number, email or WeChat ID: do not ask for it again/);
   assert.match(p, /are given only when the customer asks for them/);
@@ -440,7 +440,7 @@ test('talking to a person: ask for the customer\'s contact instead of giving our
   let r = await sales.salesTurn([{ role: 'user', content: '我想跟真人聊' }], 'conv-human-ask-01', undefined, { create: s.create, notify: async () => {} });
   const noContactResult = s.calls[1].messages.at(-1).content[0];
   assert.equal(noContactResult.is_error, true);
-  assert.match(noContactResult.content, /ask for their name and the best way to reach them: a phone number \(call or text\), email or WeChat, whichever they prefer/);
+  assert.match(noContactResult.content, /ask for their name and the best way to reach them: a phone call, a text message, email or WeChat \(in Chinese: 电话、短信、邮箱或微信\), whichever they prefer/);
   assert.match(noContactResult.content, /Do not give our phone number or email/);
   assert.doesNotMatch(noContactResult.content, /949|BonnieX/i, 'our phone/email are not handed to the model to repeat');
   assert.equal(r.cta, 'human_form');
