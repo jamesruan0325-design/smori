@@ -159,7 +159,7 @@ function readFacts(form) {
   delete o.product_custom; return o;
 }
 
-const STAGES = [['new','新线索'],['contact_pending','有联系方式、待跟进'],['qualified','已确认需求'],['consultation_requested','申请预约咨询'],['handed_to_human','转人工']];
+const STAGES = [['new','新线索'],['contact_pending','已留联系方式'],['qualified','已确认需求'],['consultation_requested','申请预约咨询'],['handed_to_human','转人工']];
 const PREF_ZH = { phone: '电话', sms: '短信', email: '邮件', wechat: '微信' };
 const STAGE_ZH = Object.fromEntries(STAGES);
 const FOLLOWUPS = [['pending','待跟进'],['contacted','已联系'],['booked','已预约'],['quoted','已报价'],['won','成交'],['lost','未成交']];
@@ -205,7 +205,7 @@ async function showLeads() {
   const tab = (v, t, n) => `<button class="btn small" style="${leadStage===v?'background:var(--gold);color:#000':'border-color:var(--line);color:var(--muted)'}" onclick="leadStage='${v}';showLeads()">${t} ${n}</button>`;
   const fuTab = (v, t, n) => `<button class="btn small" style="${leadFollowup===v?'background:var(--gold);color:#000':'border-color:var(--line);color:var(--muted)'}" onclick="leadFollowup='${v}';showLeads()">${t} ${n}</button>`;
   $('#view').innerHTML = `<h2>网站咨询线索 <span style="font-size:13px;color:var(--muted)">${all.length} 条</span></h2>
-    <p style="color:var(--muted);font-size:13px">AI Sales Agent 每个对话一条线索，阶段只会往前走：新线索 → 有联系方式、待跟进 → 已确认需求 → 申请预约咨询 → 转人工。客户一留下电话、邮箱或微信就推送一次（"有联系方式、待跟进"不代表有购买意向），之后每升一个阶段再推送一次；推送没送达会自动重试。也包含旧版 AI 客服"转人工"表单的线索。</p>
+    <p style="color:var(--muted);font-size:13px">AI Sales Agent 每个对话一条线索，阶段只会往前走：新线索 → 已留联系方式 → 已确认需求 → 申请预约咨询 → 转人工。客户一留下电话、邮箱或微信就推送一次（"已留联系方式"不代表有购买意向），之后每升一个阶段再推送一次；推送没送达会自动重试。也包含旧版 AI 客服"转人工"表单的线索。</p>
     <p style="color:var(--muted);font-size:13px">跟进状态由你们手动设置：待跟进 → 已联系 → 已预约 → 已报价 → 成交 / 未成交。新线索默认"待跟进"；"成交""未成交"表示结束，之后仍可改回。改跟进状态只保存在后台，不会给客户发短信、邮件、微信，也不会推送。</p>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><span style="font-size:12px;color:var(--muted);align-self:center">跟进状态</span>${fuTab('', '全部', all.length)}${FOLLOWUPS.map(([v,t]) => fuTab(v, t, all.filter(l => followupOf(l) === v).length)).join('')}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"><span style="font-size:12px;color:var(--muted);align-self:center">阶段</span>${tab('', '全部', all.length)}${STAGES.map(([v,t]) => tab(v, t, count(v))).join('')}

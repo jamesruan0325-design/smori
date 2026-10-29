@@ -393,7 +393,7 @@ export const SCENARIOS: Scenario[] = [
 
   /* ---------------- 联系方式：客户主动留下、客户自己选方式 ---------------- */
   {
-    id: 'contact-volunteered-no-intent', category: '联系方式选择', title: '客户先留电话、只想了解产品：不推预约、不再要信息，线索=有联系方式待跟进', lang: 'zh', extract: true,
+    id: 'contact-volunteered-no-intent', category: '联系方式选择', title: '客户先留电话、只想了解产品：不推预约、不再要信息，线索=已留联系方式', lang: 'zh', extract: true,
     turns: ['你好，我姓陈，电话 949-555-0123，想先了解一下你们都做哪些窗帘产品'],
     expect: { noContactAskBefore: 1, cta: [{ turn: 0, cta: null }], stage: 'contact_pending', singleLead: true, freshSummary: true, contactPreference: null },
     judge: ['客户只是留了电话、还没表达预约意向：先回答问题、了解需求，没有邀请预约或上门，也没有再索要邮编、邮箱等信息', J_FACTS, J_TONE],

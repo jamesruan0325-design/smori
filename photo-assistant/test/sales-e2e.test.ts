@@ -94,7 +94,7 @@ test('widget forms alone (no chat details) still create a staged lead; old widge
   assert.equal(await getConversationLead('e2eoldwidget0001'), null, 'old widget payload does not create a sales lead');
 });
 
-test('a WeChat ID typed in chat, no need and no booking: 有联系方式、待跟进 is pushed (real SDK + structured output)', async () => {
+test('a WeChat ID typed in chat, no need and no booking: 已留联系方式 is pushed (real SDK + structured output)', async () => {
   const before = pushes.length;
   const r = await fetch(`${base}/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversationId: 'e2ewechat000001', agent: 'sales', messages: [{ role: 'user', content: 'Hi, my WeChat: wxtest001. What products do you carry?' }] }) });
   assert.equal(r.status, 200);
@@ -102,5 +102,5 @@ test('a WeChat ID typed in chat, no need and no booking: 有联系方式、待�
   const lead = await getConversationLead('e2ewechat000001');
   assert.equal(lead!.stage, 'contact_pending');
   assert.equal(lead!.wechat, 'wxtest001');
-  assert.deepEqual(pushes.slice(before), ['SMORI 销售线索：有联系方式、待跟进']);
+  assert.deepEqual(pushes.slice(before), ['SMORI 销售线索：已留联系方式']);
 });

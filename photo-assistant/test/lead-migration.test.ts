@@ -69,7 +69,7 @@ test('deploy: leads written by the production version are migrated once, never p
 
   const stage = async (c: string) => (await byConv(c)).stage;
   assert.equal(await stage('mig-new-nocontact'), 'new');
-  assert.equal(await stage('mig-new-contact'), 'contact_pending', 'contact only: 有联系方式、待跟进');
+  assert.equal(await stage('mig-new-contact'), 'contact_pending', 'contact only: 已留联系方式');
   assert.equal(await stage('mig-new-contact-zip'), 'contact_pending', 'ZIP / window count is not a need: still not high intent');
   assert.equal(await stage('mig-qualified'), 'qualified');
   assert.equal(await stage('mig-booked'), 'consultation_requested');
@@ -105,7 +105,7 @@ test('deploy: leads written by the production version are migrated once, never p
 
 /* ---------------- contact alone is never high intent ---------------- */
 
-test('有联系方式、待跟进 and high intent are different: a phone / email / WeChat alone never becomes 申请预约咨询 or 转人工', async () => {
+test('已留联系方式 and high intent are different: a phone / email / WeChat alone never becomes 申请预约咨询 or 转人工', async () => {
   // stage rules
   for (const l of [{ phone: '9495550100' }, { email: 'a@b.co' }, { wechat: 'wx_only_01' }, { phone: '9495550100', zip: '92618', budget_range: '5k', window_count: '6', motorization_interest: 'yes', products_recommended: ['Duette'] }]) {
     assert.equal(leads.computeStage(l), 'contact_pending', JSON.stringify(l));
@@ -121,7 +121,7 @@ test('有联系方式、待跟进 and high intent are different: a phone / email
   assert.equal(l!.stage, 'contact_pending');
   assert.equal(l!.consultation_interest, 'unknown');
   assert.equal(l!.wants_human, undefined);
-  assert.deepEqual(r.pushes.map((p) => p.title), ['SMORI 销售线索：有联系方式、待跟进']);
+  assert.deepEqual(r.pushes.map((p) => p.title), ['SMORI 销售线索：已留联系方式']);
 
   // the customer's own booking words (or a yes to our invitation) do make it high intent
   const asked = [{ role: 'user' as const, content: '想预约上门测量，电话 949-555-0124' }];
@@ -140,7 +140,7 @@ test('有联系方式、待跟进 and high intent are different: a phone / email
   assert.equal(sales.customerAskedToBook([{ role: 'user', content: 'Hi, my number is 949-555-0127' }]), false);
   assert.equal(sales.customerAskedForPerson([{ role: 'user', content: 'Hi, my number is 949-555-0127' }]), false);
 
-  // a ZIP + phone in chat, the model only checks the ZIP: 有联系方式、待跟进
+  // a ZIP + phone in chat, the model only checks the ZIP: 已留联系方式
   let calls = 0;
   const create = async () => ({ id: 'm', type: 'message', role: 'assistant', model: 'stub', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 },
     ...(calls++ === 0 ? { content: [{ type: 'tool_use', id: 'tu_1', name: 'check_service_area', input: { zip: '92618' } }], stop_reason: 'tool_use' } : { content: [{ type: 'text', text: '92618 在我们的服务范围内。请问是哪个房间？', citations: null }], stop_reason: 'end_turn' }) }) as any;

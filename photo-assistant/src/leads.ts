@@ -7,7 +7,7 @@ import { leadNotify, ntfyNotify, type Notifier } from './notify.js';
 /** Lead pipeline, forward-only for the agent (staff may set any stage by hand). */
 export const STAGES = ['new', 'contact_pending', 'qualified', 'consultation_requested', 'handed_to_human'] as const;
 export type Stage = (typeof STAGES)[number];
-export const STAGE_LABEL_ZH: Record<Stage, string> = { new: '新线索', contact_pending: '有联系方式、待跟进', qualified: '已确认需求', consultation_requested: '申请预约咨询', handed_to_human: '转人工' };
+export const STAGE_LABEL_ZH: Record<Stage, string> = { new: '新线索', contact_pending: '已留联系方式', qualified: '已确认需求', consultation_requested: '申请预约咨询', handed_to_human: '转人工' };
 
 /**
  * Sales follow-up status, set by staff in the admin page (separate from the AI `stage`, which tracks
@@ -315,7 +315,7 @@ export function composeSummary(l: Lead): string {
   return [stripStatusClaims(l.needs_summary ?? ''), leadStatusLine(l)].filter(Boolean).join('\n');
 }
 
-const PUSH_TITLE: Record<Stage, string> = { new: '', contact_pending: 'SMORI 销售线索：有联系方式、待跟进', qualified: 'SMORI 销售线索：已确认需求', consultation_requested: 'SMORI 销售线索：申请预约咨询', handed_to_human: 'SMORI 销售线索：转人工' };
+const PUSH_TITLE: Record<Stage, string> = { new: '', contact_pending: 'SMORI 销售线索：已留联系方式', qualified: 'SMORI 销售线索：已确认需求', consultation_requested: 'SMORI 销售线索：申请预约咨询', handed_to_human: 'SMORI 销售线索：转人工' };
 
 function pushBody(l: Lead): string {
   const facts = [l.room_type, l.window_count && `${l.window_count} 扇窗`, l.primary_need, l.motorization_interest && `电动：${l.motorization_interest}`, l.zip && `ZIP ${l.zip}${l.zip_in_area ? '（OC）' : ''}`, l.preferred_time && `时间：${l.preferred_time}`].filter(Boolean).join(' · ');
@@ -474,7 +474,7 @@ export async function retryFailedPushes(opts: { notify?: Notifier; now?: () => D
  * before any request is served. It never pushes and never raises a lead to a higher intent:
  *  - an unknown or missing stage reads as before (legacy leads: 转人工; sales leads: new);
  *  - a sales lead at "new" that already has a phone / email / WeChat becomes contact_pending
- *    (有联系方式、待跟进; not a confirmed need, not buying intent), unless staff set "new" by hand;
+ *    (已留联系方式; not a confirmed need, not buying intent), unless staff set "new" by hand;
  *  - its current stage (and contact_pending when it has contact details) is recorded as already
  *    notified, so neither the next customer message nor the push retry re-sends history;
  *    later real progress (a need, a booking, a person request) still pushes as usual.

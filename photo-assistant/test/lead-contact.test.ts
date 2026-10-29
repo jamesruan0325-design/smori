@@ -1,5 +1,5 @@
 /**
- * Contact capture and lead pushes: the "有联系方式、待跟进" stage, push delivery / retry,
+ * Contact capture and lead pushes: the "已留联系方式" stage, push delivery / retry,
  * phone · text · email · WeChat as the customer chooses, and the rate-limit visitor key.
  */
 import { test, after } from 'node:test';
@@ -43,18 +43,18 @@ const extracted = (over: Partial<import('../src/sales.js').Extracted> = {}): imp
   motorization_interest: null, budget_range: null, products_recommended: [], consultation_interest: 'unknown', wants_human: false, summary: '', ...over,
 });
 
-/* ---------------- 有联系方式、待跟进 ---------------- */
+/* ---------------- 已留联系方式 ---------------- */
 
-test('contact alone: "有联系方式、待跟进" is pushed at once (not a confirmed need), then each higher stage once', async () => {
+test('contact alone: "已留联系方式" is pushed at once (not a confirmed need), then each higher stage once', async () => {
   const { pushes, notify } = recorder();
   const conv = 'conv-contact-only-01';
   let l = await upsertConversationLead(conv, { phone: '949-555-0123' }, { notify });
   assert.equal(l!.stage, 'contact_pending');
   assert.equal(pushes.length, 1);
-  assert.equal(pushes[0].title, 'SMORI 销售线索：有联系方式、待跟进');
+  assert.equal(pushes[0].title, 'SMORI 销售线索：已留联系方式');
   assert.match(pushes[0].body, /949-555-0123/);
   assert.match(pushes[0].body, /客户留了联系方式，还没谈需求，也没要求预约。/);
-  assert.match(l!.summary!, /阶段：有联系方式、待跟进/);
+  assert.match(l!.summary!, /阶段：已留联系方式/);
 
   l = await upsertConversationLead(conv, { room_type: '客厅', primary_need: '隐私' }, { notify });
   assert.equal(l!.stage, 'qualified', 'a need makes it 已确认需求 (still not buying intent)');
@@ -67,14 +67,14 @@ test('contact alone: "有联系方式、待跟进" is pushed at once (not a conf
   assert.equal(pushes.length, 3);
   assert.deepEqual(l!.stage_history!.map((h) => h.stage), ['contact_pending', 'qualified', 'consultation_requested']);
 
-  // ZIP / budget / products are not a need: still 有联系方式、待跟进
+  // ZIP / budget / products are not a need: still 已留联系方式
   const r = recorder();
   const z = await upsertConversationLead('conv-contact-only-02', { email: 'z@example.com', zip: '92618', budget_range: '5k' }, { notify: r.notify });
   assert.equal(z!.stage, 'contact_pending');
   assert.equal(r.pushes.length, 1);
 });
 
-test('contact typed in chat with no need and no intent: extraction makes it 有联系方式、待跟进 and pushes', async () => {
+test('contact typed in chat with no need and no intent: extraction makes it 已留联系方式 and pushes', async () => {
   const { pushes, notify } = recorder();
   const history = [
     { role: 'user' as const, content: "Hi, I'm Lisa, 949-555-1234. What products do you carry?" },
