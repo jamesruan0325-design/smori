@@ -222,10 +222,33 @@ test('legacy assistant form leads follow the same rule: pending until delivered'
   assert.equal(l.push_pending!.attempts, 1);
   const { pushes, notify } = recorder();
   await retryFailedPushes({ notify });
-  assert.equal(pushes.filter((x) => /9495554000/.test(x.body)).length, 1);
+  assert.equal(pushes.filter((x) => /949-555-4000/.test(x.body)).length, 1);
   const ok = await leads.saveLead({ conversationId: 'form', source: 'form', reason: 'human', language: 'zh', phone: '9495554001' }, async () => {});
   assert.deepEqual(ok.notified, ['handed_to_human']);
   assert.equal(ok.push_pending, undefined);
+});
+
+test('phone numbers: US numbers are saved and shown as 949-555-0103 however typed; other numbers stay as typed', async () => {
+  for (const [typed, shown] of [
+    ['9495550103', '949-555-0103'], ['949-555-0103', '949-555-0103'], ['(949) 555-0103', '949-555-0103'], ['949.555.0103', '949-555-0103'],
+    ['+1 949 555 0103', '949-555-0103'], ['+19495550103', '949-555-0103'],
+    ['13800138000', '13800138000'], ['+86 138 0013 8000', '+86 138 0013 8000'], ['1-949-555-0103', '1-949-555-0103'], ['949 555 0103 ext 2', '949 555 0103 ext 2'],
+  ]) assert.equal(leads.formatPhone(typed), shown, typed);
+
+  const { pushes, notify } = recorder();
+  const a = await upsertConversationLead('conv-phone-fmt-01', { phone: '9495554100' }, { notify });
+  assert.equal(a!.phone, '949-555-4100', 'saved in the common format');
+  assert.match(pushes.at(-1)!.body, /^（未留姓名） · 949-555-4100/);
+  assert.match(a!.summary!, /电话 949-555-4100/);
+  const b = await upsertConversationLead('conv-phone-fmt-02', { phone: '(949) 555-4101' }, { notify });
+  assert.equal(b!.phone, '949-555-4101');
+  const c = await upsertConversationLead('conv-phone-fmt-03', { wechat: 'wx_fmt_01', phone: '+86 138 0013 8000' }, { notify });
+  assert.equal(c!.phone, '+86 138 0013 8000', 'a non-US number is kept as typed');
+  const legacy = await leads.saveLead({ conversationId: 'form', source: 'form', reason: 'human', language: 'zh', phone: '949.555.4103' }, async () => {});
+  assert.equal(legacy.phone, '949-555-4103', 'old assistant form too');
+  // leads saved before this change keep the digits as typed; the CSV shows them in the common format
+  const csv = leadsToCsv([{ ...a!, phone: '9495554102' }]);
+  assert.match(csv, /,949-555-4102,/);
 });
 
 test('a booking / person request before any contact is kept, so the contact that follows makes it high intent', async () => {

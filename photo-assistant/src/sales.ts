@@ -217,10 +217,10 @@ export const ExtractSchema = z.object({
   // plain string, not an enum: the structured-output grammar does not enforce enums, and one odd value must not fail the whole extraction
   contact_preference: nullableStr('How the customer explicitly said they prefer to be contacted: "phone" (a call), "sms" (a text message), "email" or "wechat"; null if they did not say (giving only one contact detail is not a stated preference)'),
   zip: nullableStr('5-digit ZIP code the customer gave, else null'),
-  room_type: nullableStr('Room(s) the project is for, e.g. "master bedroom", "living room + 2 bedrooms"'),
+  room_type: nullableStr('Room(s) the project is for, in the language the customer writes in, e.g. "主卧", "客厅和两间卧室" (Chinese chat) or "master bedroom", "living room + 2 bedrooms" (English chat)'),
   window_count: nullableStr('Number of windows as stated, e.g. "3", "about 10"'),
-  approximate_size: nullableStr('Approximate window sizes or types as stated, e.g. "one 8 ft sliding door"'),
-  primary_need: nullableStr('Main need(s): blackout, privacy, light control, insulation, decor, etc.'),
+  approximate_size: nullableStr('Approximate window sizes or types as stated, in the language the customer writes in, e.g. "一扇 8 英尺推拉门" or "one 8 ft sliding door"'),
+  primary_need: nullableStr('Main need(s), in the language the customer writes in: 遮光、隐私、调光、隔热、装饰 etc. in a Chinese chat; blackout, privacy, light control, insulation, decor etc. in an English chat'),
   motorization_interest: nullableStr('"yes", "no", "maybe" or a short note, only if discussed'),
   budget_range: nullableStr('Budget the CUSTOMER stated, verbatim; null if the customer did not state one. Never infer.'),
   products_recommended: z.array(z.string()).describe('Product names the assistant recommended in this conversation'),
@@ -230,7 +230,7 @@ export const ExtractSchema = z.object({
 });
 export type Extracted = z.infer<typeof ExtractSchema>;
 
-const EXTRACT_SYSTEM = `You extract CRM fields from a website chat between a customer and the AI consultant of a window-treatment studio. Use only what is in the transcript. Contact details (phone, email, WeChat ID), contact preference, ZIP and budget must come from the CUSTOMER's own messages; never take them from the assistant and never guess. Use null for anything not stated. products_recommended lists product names the assistant recommended. The summary is for the sales team, in Simplified Chinese, describes only the project and needs, and must not contain prices, contact details, ZIP, or statements about whether contact details were given (those are tracked as separate fields and may change after this conversation).`;
+const EXTRACT_SYSTEM = `You extract CRM fields from a website chat between a customer and the AI consultant of a window-treatment studio. Use only what is in the transcript. Contact details (phone, email, WeChat ID), contact preference, ZIP and budget must come from the CUSTOMER's own messages; never take them from the assistant and never guess. Use null for anything not stated. Write room_type, approximate_size and primary_need in the language the customer writes in (a Chinese chat gets Simplified Chinese values). products_recommended lists product names the assistant recommended. The summary is for the sales team, in Simplified Chinese, describes only the project and needs, and must not contain prices, contact details, ZIP, or statements about whether contact details were given (those are tracked as separate fields and may change after this conversation).`;
 
 export type Extractor = (history: ChatMessage[]) => Promise<Extracted | null>;
 
@@ -268,6 +268,27 @@ export function customerAskedForPerson(history: ChatMessage[]): boolean {
 }
 
 /** Turns extractor output into a safe patch: validated formats, contact data only if the customer typed it, known products only. */
+/* Needs the extractor still wrote in English during a Chinese chat, in the words the sales team uses. */
+const NEED_ZH: [RegExp, string][] = [
+  [/\b(blackout|room[- ]darkening|darkening)\b/gi, '遮光'],
+  [/\bprivacy\b/gi, '隐私'],
+  [/\blight[- ]filtering\b/gi, '透光'],
+  [/\blight control\b/gi, '调光'],
+  [/\b(natural light|daylight)\b/gi, '采光'],
+  [/\b(thermal insulation|insulation|energy[- ]efficiency|energy saving|heat control|heat reduction)\b/gi, '隔热'],
+  [/\buv( protection)?\b/gi, '防紫外线'],
+  [/\bglare( reduction)?\b/gi, '防眩光'],
+  [/\b(decor|decoration|aesthetics|style)\b/gi, '装饰'],
+  [/\b(motori[sz]ation|motori[sz]ed|automation)\b/gi, '电动'],
+];
+export function needZh(s: string | undefined): string | undefined {
+  if (!s) return s;
+  let out = s;
+  for (const [re, zh] of NEED_ZH) out = out.replace(re, zh);
+  if (out === s) return s;
+  return out.replace(/\s*(?:,|;|\/|\band\b|&)\s*/gi, '、').replace(/、{2,}/g, '、').replace(/^、|、$/g, '');
+}
+
 export function sanitizeExtraction(x: Extracted, history: ChatMessage[]): LeadPatch {
   const phone = validPhone(x.phone);
   const email = validEmail(x.email);
@@ -286,7 +307,7 @@ export function sanitizeExtraction(x: Extracted, history: ChatMessage[]): LeadPa
     room_type: str(x.room_type, 120),
     window_count: str(x.window_count, 40),
     approximate_size: str(x.approximate_size, 160),
-    primary_need: str(x.primary_need, 160),
+    primary_need: conversationLanguage(history) === 'zh' ? needZh(str(x.primary_need, 160)) : str(x.primary_need, 160),
     motorization_interest: str(x.motorization_interest, 80),
     budget_range: str(x.budget_range, 80),
     products_recommended: [...new Set(products)],

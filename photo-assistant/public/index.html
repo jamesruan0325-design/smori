@@ -83,6 +83,12 @@ const api = async (url, opt={}) => {
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let health = null, current = null;
 // stored times are UTC; show them in the business time zone (Los Angeles unless TIMEZONE says otherwise)
+// same as formatPhone in leads.ts: US numbers read 949-555-0103 (older leads kept them as typed)
+function fmtPhone(s) {
+  const t = String(s || '').trim(), d = t.replace(/\D/g, '');
+  const us = !t.startsWith('+') && d.length === 10 ? d : /^\+1\D*\d/.test(t) && d.length === 11 ? d.slice(1) : '';
+  return us ? us.slice(0, 3) + '-' + us.slice(3, 6) + '-' + us.slice(6) : t;
+}
 function fmtTime(iso, short) {
   const d = new Date(iso || '');
   if (!iso || isNaN(d)) return iso || '';
@@ -169,7 +175,7 @@ let leadStage = '', leadFollowup = '';
 async function loadLeadsCount() { try { const l = await api('/api/leads'); const open = l.filter(x => followupOf(x) === 'pending').length; $('#leadsCount').textContent = open ? open + ' 待跟进' : l.length ? '没有待跟进' : '暂无'; } catch {} }
 function leadField(label, v) { return v ? `<div><span style="color:var(--muted)">${label}</span> ${esc(Array.isArray(v) ? v.join(', ') : v)}</div>` : ''; }
 function leadCard(l) {
-  const contact = ([l.phone, l.email, l.wechat && '微信 '+l.wechat].filter(Boolean).map(esc).join(' · ') + (l.contact_preference ? ` <span style="color:var(--gold)">（首选${esc(PREF_ZH[l.contact_preference]||l.contact_preference)}）</span>` : '')) || '<span style="color:var(--muted)">（还没有联系方式）</span>';
+  const contact = ([l.phone && fmtPhone(l.phone), l.email, l.wechat && '微信 '+l.wechat].filter(Boolean).map(esc).join(' · ') + (l.contact_preference ? ` <span style="color:var(--gold)">（首选${esc(PREF_ZH[l.contact_preference]||l.contact_preference)}）</span>` : '')) || '<span style="color:var(--muted)">（还没有联系方式）</span>';
   const pp = l.push_pending || {};
   const pushFail = l.push_status ? `<span class="badge" style="border-color:#e07070;color:#e07070" title="${esc(pp.last_error||'')}">${l.push_status === 'gave_up' ? '推送没送达，已停止重试' : `推送没送达（${pp.attempts||0} 次），自动重试中`}</span>` : '';
   const stageSel = `<select onchange="api('/api/leads/${l.id}/stage',{method:'POST',body:{stage:this.value}}).then(()=>showLeads())" style="width:auto;padding:4px 8px;font-size:12px">${STAGES.map(([v,t]) => `<option value="${v}" ${l.stage===v?'selected':''}>${t}</option>`).join('')}</select>`;

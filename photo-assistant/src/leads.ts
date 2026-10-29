@@ -121,8 +121,20 @@ function preferenceNote(l: Lead): string {
   return l[field] ? `首选${CONTACT_PREFERENCE_ZH[p]}` : `首选${CONTACT_PREFERENCE_ZH[p]}，但没留${({ phone: '电话', email: '邮箱', wechat: '微信号' })[field]}`;
 }
 
+/**
+ * One format for US numbers, however they were typed: 9495550103, (949) 555-0103 and +1 949 555 0103 all read
+ * 949-555-0103. Anything else (other countries, extensions, 11 digits without +1, e.g. a Chinese mobile) stays as typed.
+ */
+export function formatPhone(s: string | undefined): string | undefined {
+  if (!s) return s;
+  const t = s.trim();
+  const d = t.replace(/\D/g, '');
+  const us = !t.startsWith('+') && d.length === 10 ? d : /^\+1\D*\d/.test(t) && d.length === 11 ? d.slice(1) : '';
+  return us ? `${us.slice(0, 3)}-${us.slice(3, 6)}-${us.slice(6)}` : t;
+}
+
 function contactLine(l: Lead): string {
-  const line = [l.phone, l.email, l.wechat && `WeChat ${l.wechat}`].filter(Boolean).join(' · ');
+  const line = [formatPhone(l.phone), l.email, l.wechat && `WeChat ${l.wechat}`].filter(Boolean).join(' · ');
   const pref = preferenceNote(l);
   return pref ? `${line}（${pref}）` : line;
 }
@@ -132,6 +144,7 @@ export async function saveLead(input: Omit<Lead, 'id' | 'createdAt'>, notify: No
   if (!hasContact(input)) throw new Error('a phone number, email or WeChat ID is required');
   const now = new Date();
   const lead: Lead = { id: newId(now), createdAt: now.toISOString(), lead_source: 'AI Assistant', stage: 'handed_to_human', followup_status: 'pending', ...input };
+  if (lead.phone) lead.phone = formatPhone(lead.phone);
   lead.stage_history ??= [{ stage: lead.stage!, at: lead.createdAt, by: 'agent' }];
   // same rule as the sales leads: saved first, recorded as sent only once delivered, retried otherwise
   const pending: NonNullable<Lead['push_pending']> = { stage: lead.stage!, since: lead.createdAt, attempts: 0 };
@@ -271,7 +284,7 @@ export function mergeLead(base: Lead, patch: LeadPatch): Lead {
   for (const [k, v] of Object.entries(patch)) {
     if (MERGE_SKIP.has(k)) continue;
     if (v === undefined || v === null || (typeof v === 'string' && !v.trim())) continue;
-    (out as unknown as Record<string, unknown>)[k] = typeof v === 'string' ? v.trim() : v;
+    (out as unknown as Record<string, unknown>)[k] = k === 'phone' && typeof v === 'string' ? formatPhone(v) : typeof v === 'string' ? v.trim() : v;
   }
   if (patch.products_recommended?.length) out.products_recommended = [...new Set([...(base.products_recommended ?? []), ...patch.products_recommended])];
   if (patch.transcript?.length) out.transcript = patch.transcript;
@@ -303,7 +316,7 @@ export function stripStatusClaims(text: string): string {
 
 /** Deterministic status line from the current lead fields. */
 export function leadStatusLine(l: Lead): string {
-  const got = [l.name && `姓名 ${l.name}`, l.phone && `电话 ${l.phone}`, l.email && `邮箱 ${l.email}`, l.wechat && `微信 ${l.wechat}`, preferenceNote(l)].filter(Boolean);
+  const got = [l.name && `姓名 ${l.name}`, l.phone && `电话 ${formatPhone(l.phone)}`, l.email && `邮箱 ${l.email}`, l.wechat && `微信 ${l.wechat}`, preferenceNote(l)].filter(Boolean);
   const contact = hasContact(l) ? `联系信息：${got.join('、')}` : `联系信息：${l.name ? `姓名 ${l.name}，` : ''}尚未留下电话或邮箱`;
   const zip = l.zip ? `ZIP ${l.zip}（${l.zip_in_area ? 'OC 常规服务区' : '服务范围待团队确认'}）` : '';
   const stage = l.stage ? `阶段：${STAGE_LABEL_ZH[l.stage]}${l.preferred_time ? `，希望时间 ${l.preferred_time}` : ''}` : '';
@@ -552,7 +565,7 @@ export function leadsToCsv(leads: Lead[]): string {
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const rows = leads.map((l) => CSV_COLUMNS.map((c) => cell(
-    c === 'followup_status' ? FOLLOWUP_LABEL_ZH[l.followup_status ?? (l.handled ? 'contacted' : 'pending')] : c === 'page_url' ? l.page?.url : c === 'utm' ? (l.page?.utm ? Object.entries(l.page.utm).map(([k, v]) => `${k}=${v}`).join('&') : '') : (l as unknown as Record<string, unknown>)[c],
+    c === 'phone' ? formatPhone(l.phone) : c === 'followup_status' ? FOLLOWUP_LABEL_ZH[l.followup_status ?? (l.handled ? 'contacted' : 'pending')] : c === 'page_url' ? l.page?.url : c === 'utm' ? (l.page?.utm ? Object.entries(l.page.utm).map(([k, v]) => `${k}=${v}`).join('&') : '') : (l as unknown as Record<string, unknown>)[c],
   )).join(','));
   return '﻿' + [CSV_COLUMNS.join(','), ...rows].join('\r\n') + '\r\n';
 }

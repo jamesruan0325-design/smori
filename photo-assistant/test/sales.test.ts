@@ -129,6 +129,21 @@ test('ZIP: 926/927/928 is a preliminary OC signal; other ZIPs are never refused'
   assert.equal(leads.zipInServiceArea('92618', ['900']), false, 'prefixes are configurable');
 });
 
+test('needs: a Chinese chat gets Chinese needs even when the extractor wrote them in English; an English chat keeps English', () => {
+  for (const [en, zh] of [
+    ['blackout', '遮光'], ['blackout, privacy', '遮光、隐私'], ['Blackout and privacy', '遮光、隐私'], ['room-darkening / light control', '遮光、调光'],
+    ['thermal insulation & UV protection', '隔热、防紫外线'], ['decor', '装饰'], ['遮光', '遮光'], ['遮光, privacy', '遮光、隐私'], ['something custom', 'something custom'],
+  ]) assert.equal(sales.needZh(en), zh, en);
+  const x = emptyExtract({ room_type: '客厅', primary_need: 'blackout, privacy' });
+  const zhChat = sales.sanitizeExtraction(x, [{ role: 'user', content: '我想预约上门测量，客厅有三扇窗想装遮光帘' }]);
+  assert.equal(zhChat.primary_need, '遮光、隐私');
+  const enChat = sales.sanitizeExtraction(x, [{ role: 'user', content: 'I would like blackout shades for the living room please' }]);
+  assert.equal(enChat.primary_need, 'blackout, privacy', 'English chat: unchanged');
+  // the extractor is also asked for the customer's language
+  const schema = JSON.stringify(sales.ExtractSchema.shape.primary_need.description);
+  assert.match(schema, /language the customer writes in/);
+});
+
 test('extractor output is validated: formats, contact must be typed by the customer, known products only', () => {
   const history = [
     { role: 'user' as const, content: 'Hi, master bedroom blackout for 3 windows. I am Anna, 949-555-1234, ZIP 92618' },
