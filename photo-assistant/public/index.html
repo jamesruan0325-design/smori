@@ -82,6 +82,13 @@ const api = async (url, opt={}) => {
 };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let health = null, current = null;
+// stored times are UTC; show them in the business time zone (Los Angeles unless TIMEZONE says otherwise)
+function fmtTime(iso, short) {
+  const d = new Date(iso || '');
+  if (!iso || isNaN(d)) return iso || '';
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: (health && health.timezone) || 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d).map((x) => [x.type, x.value]));
+  return (short ? '' : p.year + '-') + p.month + '-' + p.day + ' ' + p.hour + ':' + p.minute;
+}
 
 async function loadHealth() {
   health = await api('/api/health');
@@ -167,7 +174,7 @@ function leadCard(l) {
     <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <div><b style="color:#fff">${esc(l.name||'（未留姓名）')}</b> · ${contact} ${l.city?'· '+esc(l.city):''}
         <span class="badge" style="border-color:var(--gold);color:var(--gold)">${esc(STAGE_ZH[l.stage]||l.stage)}</span><span class="badge">${esc(l.lead_source||'')}</span><span class="badge">${l.language==='zh'?'中文':'English'}</span>${l.handled?'<span class="badge">已处理</span>':''}${pushFail}</div>
-      <div style="font-size:12px;color:var(--muted)">${esc((l.updatedAt||l.createdAt||'').replace('T',' ').slice(0,16))}</div>
+      <div style="font-size:12px;color:var(--muted)">${esc(fmtTime(l.updatedAt||l.createdAt))}</div>
     </div>
     ${l.summary ? `<div style="margin-top:8px">${esc(l.summary)}</div>` : ''}
     <div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 16px;font-size:13px">
@@ -176,7 +183,7 @@ function leadCard(l) {
       ${leadField('预约意向', l.consultation_interest && ({yes:'是',no:'否',unknown:'未谈到'})[l.consultation_interest])}${leadField('希望时间', l.preferred_time)}${leadField('来源页面', l.page && l.page.url)}${leadField('UTM', l.page && l.page.utm && Object.entries(l.page.utm).map(([k,v])=>k+'='+v).join(' '))}
     </div>
     ${l.interest || l.notes ? `<div style="margin-top:6px;color:var(--muted)">${esc(l.interest||'')} ${esc(l.notes||'')}</div>` : ''}
-    ${l.stage_history && l.stage_history.length ? `<div style="margin-top:6px;font-size:12px;color:var(--muted)">${l.stage_history.map(h => `${esc(STAGE_ZH[h.stage]||h.stage)} ${esc(h.at.replace('T',' ').slice(5,16))}${h.by==='staff'?'（手动）':h.by==='migration'?'（版本升级）':''}`).join(' → ')}</div>` : ''}
+    ${l.stage_history && l.stage_history.length ? `<div style="margin-top:6px;font-size:12px;color:var(--muted)">${l.stage_history.map(h => `${esc(STAGE_ZH[h.stage]||h.stage)} ${esc(fmtTime(h.at, true))}${h.by==='staff'?'（手动）':h.by==='migration'?'（版本升级）':''}`).join(' → ')}</div>` : ''}
     ${l.transcript && l.transcript.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--gold);font-size:12px">查看对话（${l.transcript.length} 条）</summary><div class="log">${l.transcript.map(m => (m.role==='user'?'客户：':'助手：') + esc(m.content)).join('\n')}</div></details>` : ''}
     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font-size:12px;color:var(--muted)">阶段</span>${stageSel}
       <button class="btn small" onclick="api('/api/leads/${l.id}/handled',{method:'POST',body:{handled:${l.handled?'false':'true'}}}).then(()=>showLeads())">${l.handled?'标记为未处理':'标记为已处理'}</button></div>
@@ -202,7 +209,7 @@ $('#promosBtn').onclick = async () => {
   const d = await api('/api/promotions');
   const st = { ACTIVE: '<b class="ok">网站上显示中</b>', DRAFT: '<b class="warn">草稿（未显示）</b>' };
   $('#view').innerHTML = `<h2>官网活动跟踪</h2>
-    <p style="color:var(--muted);font-size:13px">服务器每天自动检查品牌官网活动页。新活动或内容变化 → 生成草稿并推送通知；官网撤下的活动 → 自动从网站下架。只有您点"发布到网站"后才会显示。上次检查：${esc((d.lastRun||'从未').replace('T',' ').slice(0,16))}
+    <p style="color:var(--muted);font-size:13px">服务器每天自动检查品牌官网活动页。新活动或内容变化 → 生成草稿并推送通知；官网撤下的活动 → 自动从网站下架。只有您点"发布到网站"后才会显示。上次检查：${esc(d.lastRun ? fmtTime(d.lastRun) : '从未')}
     <button class="btn small" onclick="checkPromos()">立即检查</button></p>
     <h3>来源</h3>${d.sources.map(s => `<div class="panel"><b style="color:#fff">${esc(s.brand)}</b> · <a href="${esc(s.url)}" target="_blank">${esc(s.url)}</a><br><span style="font-size:12px;color:${s.error?'var(--err)':'var(--muted)'}">${s.error ? '读取失败：' + esc(s.error) : esc(s.lastStatus || '尚未检查')}</span></div>`).join('')}
     <h3>活动</h3>${d.offers.length ? d.offers.map(o => `<div class="panel" style="border-color:${o.status==='ACTIVE'?'var(--ok)':o.gone?'var(--line)':'var(--gold)'}">

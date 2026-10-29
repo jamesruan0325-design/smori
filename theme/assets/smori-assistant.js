@@ -122,9 +122,15 @@
   sendBtn.onclick = function () { send(); };
   input.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 
+  /* once booked (or handed to the team with contact details) the inline booking button is removed, so it is not sent twice */
+  function markBooked() {
+    state.booked = true; save();
+    var ctas = msgs.querySelectorAll('.sma-cta');
+    for (var i = 0; i < ctas.length; i++) ctas[i].parentNode.removeChild(ctas[i]);
+  }
   /* sales mode: inline "book a consultation" button, shown once per conversation when the agent sees buying intent */
   function salesCta(j) {
-    if (j.cta === 'booked' || j.cta === 'human_sent') { state.booked = true; save(); return; }
+    if (j.cta === 'booked' || j.cta === 'human_sent') { markBooked(); return; }
     /* the customer wants a person: capture their contact with the form (no "call us" hint here; our number is given only when asked) */
     if (j.cta === 'human_form') { openForm('human', true); return; }
     if (j.cta === 'consultation' && !state.ctaShown && !state.booked) {
@@ -178,7 +184,7 @@
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
         .then(function (x) {
           done();
-          if (x.ok) { closeForm(); if (book) { state.booked = true; save(); } add('sys', (x.j && x.j.message) || t(book ? 'booked' : 'sent')); }
+          if (x.ok) { closeForm(); if (book) markBooked(); add('sys', (x.j && x.j.message) || t(book ? 'booked' : 'sent')); }
           else fail((x.j && x.j.error) || t('offline'));
         })
         .catch(function () { done(); fail(t('offline')); });

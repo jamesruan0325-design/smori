@@ -13,6 +13,8 @@ export const BUSINESS = {
   email: 'BonnieX@smoriwindowfashion.com',
   address: '23 Mauchly Suite 106, Irvine, CA 92618',
   hours: 'Mon–Fri 9AM–5PM; weekends by appointment',
+  /** The same hours for Chinese messages. */
+  hoursZh: '周一至周五 9:00–17:00，周末需预约',
   serviceArea: 'Southern California (Orange County and surrounding areas)',
   website: 'https://smoriwindowfashion.com',
   consultation: 'complimentary in-home consultation and measurement',

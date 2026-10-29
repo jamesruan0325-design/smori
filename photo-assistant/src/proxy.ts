@@ -190,7 +190,7 @@ export async function handleLead(req: Request, res: Response): Promise<void> {
   if (!hasContact(input)) { res.status(400).json({ error: lang === 'zh' ? '请至少留一个电话、邮箱或微信号。' : 'Please leave a phone number, email or WeChat ID.' }); return; }
   const conversationId = typeof b.conversationId === 'string' && CONV_RE.test(b.conversationId) ? b.conversationId : 'form';
   if (limited(visitorKey(req, res, conversationId) + ':lead', 10)) { res.status(429).json({ error: 'too many requests' }); return; }
-  const okMessage = lang === 'zh' ? `已收到，我们的顾问会在营业时间内联系您（${BUSINESS.hours}）。急事请致电 ${BUSINESS.phone}。` : `Received. A team member will contact you during business hours (${BUSINESS.hours}). For anything urgent, call ${BUSINESS.phone}.`;
+  const okMessage = lang === 'zh' ? `已收到，我们的顾问会在营业时间内联系您（${BUSINESS.hoursZh}）。急事请致电 ${BUSINESS.phone}。` : `Received. A team member will contact you during business hours (${BUSINESS.hours}). For anything urgent, call ${BUSINESS.phone}.`;
 
   // AI Sales Agent widget: "预约咨询" (kind=consultation) or "转人工" (kind=human) merge into the conversation's lead
   const kind = s('kind');
@@ -219,7 +219,7 @@ export async function handleLead(req: Request, res: Response): Promise<void> {
       page: cleanPageContext(b.page),
     }, { language: lang, source: 'form', signals: kind === 'human' ? { human: true } : { consultation: true }, notify: salesDeps.notify, now: salesDeps.now });
     res.json({ ok: true, id: lead?.id, stage: lead?.stage, message: kind === 'consultation'
-      ? (lang === 'zh' ? `预约申请已收到。顾问会在营业时间内（${BUSINESS.hours}）联系您确认上门时间。急事请致电 ${BUSINESS.phone}。` : `Your consultation request is in. A team member will contact you during business hours (${BUSINESS.hours}) to confirm the visit. For anything urgent, call ${BUSINESS.phone}.`)
+      ? (lang === 'zh' ? `预约申请已收到。顾问会在营业时间内（${BUSINESS.hoursZh}）联系您确认上门时间。急事请致电 ${BUSINESS.phone}。` : `Your consultation request is in. A team member will contact you during business hours (${BUSINESS.hours}) to confirm the visit. For anything urgent, call ${BUSINESS.phone}.`)
       : (lang === 'zh' ? '已收到。我们的顾问会在营业时间内尽快与您联系。' : 'Received. Our team will contact you during business hours as soon as possible.') });
     return;
   }

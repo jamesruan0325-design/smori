@@ -132,6 +132,7 @@ app.get('/api/health', wrap(async (_req, res) => {
   }
   const dbxConnected = await dropboxConnected();
   const st = await dropboxState();
+  out.timezone = config.timezone;
   out.assistant = { model: config.chatModel, proxySignatureOptional: config.proxySignatureOptional, rateLimit: rateLimitDiagnostics() };
   try {
     const st = (await listLeads(100_000)).map((l) => pushStatus(l));

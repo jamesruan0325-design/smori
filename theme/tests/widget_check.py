@@ -8,6 +8,7 @@ Renders the widget with the production section settings on a blank page, mocks t
   - a double click on submit sends the form once
   - phone, email or WeChat alone is accepted; a preferred method needs its field
   - the privacy notice is shown under the chat (and the privacy link only when configured)
+  - once booked (form or chat), the inline booking button is removed; the header button stays
 
 Usage: python3 theme/tests/widget_check.py [assets_dir] [screenshot_dir]
 Needs Playwright for Python with Chromium (set PW_CHROMIUM to a chromium binary if it is not the bundled one).
@@ -38,6 +39,7 @@ failures = []
 LEAD_DELAY = [0.6]
 HELD = []  # when HOLD[0] is set, /lead requests wait here until the test releases them
 HOLD = [False]
+CHAT_CTA = ['consultation']  # the cta the mocked chat reply carries
 def check(name, ok, detail=''):
     print(('PASS ' if ok else 'FAIL ') + name + (f'  ({detail})' if detail and not ok else ''))
     if not ok: failures.append(name)
@@ -62,7 +64,7 @@ def run(pw, chromium):
                 return r.fulfill(status=200, content_type='text/css; charset=utf-8' if name.endswith('.css') else 'application/javascript; charset=utf-8', body=open(os.path.join(ASSETS, name), 'rb').read())
             if u.endswith('/apps/assistant/ping'): return r.fulfill(status=200, content_type='application/json', body=json.dumps({'ok': True, 'assistant': True}))
             if u.endswith('/apps/assistant/chat'):
-                return r.fulfill(status=200, content_type='application/json', body=json.dumps({'conversationId': 'cwidgettest01', 'reply': 'Duette in a room-darkening opacity would suit a bedroom. Which room is it for?', 'cta': 'consultation'}))
+                return r.fulfill(status=200, content_type='application/json', body=json.dumps({'conversationId': 'cwidgettest01', 'reply': 'Duette in a room-darkening opacity would suit a bedroom. Which room is it for?', 'cta': CHAT_CTA[0]}))
             if u.endswith('/apps/assistant/lead'):
                 posts.append(json.loads(r.request.post_data or '{}'))
                 if HOLD[0]: HELD.append(r); return None
@@ -162,6 +164,24 @@ def run(pw, chromium):
     ctx, pg, posts = new_page(1366, 768, 'en-US', False)
     pg.click('.sma-book'); pg.click('.sma-form button[type="submit"]'); pg.wait_for_timeout(300)
     check('no contact at all is caught', len(posts) == 0 and 'WeChat' in pg.inner_text('.sma-form .err'))
+    ctx.close()
+
+    # once booked, the inline "book a free in-home consultation" button is removed; the header button stays
+    ctx, pg, posts = new_page(1366, 768, 'zh-CN', False)
+    pg.fill('.sma-input textarea', '我想预约上门测量'); pg.click('.sma-send'); pg.wait_for_selector('.sma-cta button')
+    check('inline booking button shown on buying intent', pg.locator('.sma-cta').count() == 1)
+    pg.click('.sma-cta button'); pg.fill('.sma-form input[name="phone"]', '949-555-0100'); pg.click('.sma-form button[type="submit"]'); pg.wait_for_timeout(1500)
+    check('inline booking button removed after booking with the form', len(posts) == 1 and pg.locator('.sma-cta').count() == 0, f'{len(posts)} posts, {pg.locator(".sma-cta").count()} buttons')
+    check('header booking button still there after booking', pg.locator('.sma-book').is_visible())
+    pg.fill('.sma-input textarea', '还有别的问题'); pg.click('.sma-send'); pg.wait_for_timeout(800)
+    check('no new inline booking button after booking', pg.locator('.sma-cta').count() == 0)
+    ctx.close()
+    ctx, pg, _ = new_page(1366, 768, 'en-US', False)
+    pg.fill('.sma-input textarea', 'I want to book'); pg.click('.sma-send'); pg.wait_for_selector('.sma-cta button')
+    CHAT_CTA[0] = 'booked'  # the agent booked it in the chat
+    pg.fill('.sma-input textarea', 'Jane, 949-555-0100'); pg.click('.sma-send'); pg.wait_for_selector('.sma-msg.bot >> nth=2'); pg.wait_for_timeout(300)
+    check('inline booking button removed when the agent books in the chat', pg.locator('.sma-cta').count() == 0)
+    CHAT_CTA[0] = 'consultation'
     ctx.close()
     b.close()
 

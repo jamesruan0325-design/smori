@@ -461,6 +461,11 @@ test('转人工 form confirmation: new text without our phone; booking and legac
   assert.match(booking.body.message, /^预约申请已收到。.*急事请致电 \(949\) 880-1322。$/);
   const legacy = await post({ conversationId: 'conv-handoff-msg-lg', name: '测试', phone: '9495550100', language: 'zh' }, '10.7.0.4');
   assert.match(legacy.body.message, /^已收到，我们的顾问会在营业时间内联系您（.*）。急事请致电 \(949\) 880-1322。$/);
+  // Chinese confirmations give the business hours in Chinese, not the English line
+  for (const m of [booking.body.message, legacy.body.message]) {
+    assert.ok(m.includes('（周一至周五 9:00–17:00，周末需预约）'), m);
+    assert.doesNotMatch(m, /Mon|Fri|AM|PM|weekends/);
+  }
   for (const k of Object.keys(proxy.salesDeps)) delete (proxy.salesDeps as any)[k];
 });
 
