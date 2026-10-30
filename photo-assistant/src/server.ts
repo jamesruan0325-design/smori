@@ -14,7 +14,7 @@ import { beginDropboxAuth, handleDropboxCallback, disconnectDropbox, dropboxConf
 import { approveAndPublish, diskStatus, finalizeProject, ingestPhoto, pruneStorage, readLog, runAutoCycle, startScheduler } from './auto.js';
 import { notifyConfigured, sendNtfy } from './notify.js';
 import { proxyAuth, handleChat, handleLead, handlePing, rateLimitDiagnostics } from './proxy.js';
-import { FOLLOWUP_STATUSES, LEAD_SCHEMA, leadsToCsv, listLeads, markLead, migrateLeads, pushStatus, retryFailedPushes, setFollowupStatus, setLeadStage, STAGES, type FollowupStatus, type Stage } from './leads.js';
+import { FOLLOWUP_STATUSES, LEAD_SCHEMA, leadsToCsv, listLeads, markLead, migrateLeads, pushStatus, restoreCustomerTimes, retryFailedPushes, setFollowupStatus, setLeadStage, STAGES, type FollowupStatus, type Stage } from './leads.js';
 import { checkPromotions, readPromoState, setPromotionLive, startPromotionScheduler, SOURCES } from './promotions.js';
 import { getMetaobjectStatus, adminUrlFor, PROMOTION_TYPE } from './shopify.js';
 import { claudeConfigured } from './copy.js';
@@ -302,6 +302,11 @@ try {
   const m = await migrateLeads();
   if (m.migrated) console.log(`leads migrated to schema ${LEAD_SCHEMA}: ${m.migrated} of ${m.checked} (${m.toContactPending} -> contact_pending, no pushes)`);
 } catch (e) { console.error('lead migration failed', (e as Error).message); }
+// card times earlier versions moved on staff changes go back to the customer's (never pushes)
+try {
+  const t = await restoreCustomerTimes();
+  if (t.restored) console.log(`lead card times restored to the customer's: ${t.restored} of ${t.checked}`);
+} catch (e) { console.error('lead card time repair failed', (e as Error).message); }
 
 startScheduler();
 if (config.autoEnabled) startPromotionScheduler();

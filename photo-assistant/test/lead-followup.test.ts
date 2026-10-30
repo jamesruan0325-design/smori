@@ -25,7 +25,7 @@ globalThis.fetch = (async (url: unknown, init?: { body?: unknown }) => {
 
 const leads = await import('../src/leads.js');
 const old = await import('./fixtures/leads-46c7783.js');
-const { upsertConversationLead, getConversationLead, listLeads, saveLead, setFollowupStatus, markLead, migrateLeads, retryFailedPushes, leadsToCsv } = leads;
+const { upsertConversationLead, getConversationLead, listLeads, saveLead, setFollowupStatus, setLeadStage, markLead, migrateLeads, retryFailedPushes, leadsToCsv } = leads;
 
 after(async () => { await fs.rm(tmp, { recursive: true, force: true }); });
 
@@ -37,7 +37,7 @@ const failing = () => async () => { throw new Error('ntfy HTTP 502'); };
 const file = (id: string) => path.join(tmp, 'leads', `${id}.json`);
 const raw = async (id: string) => JSON.parse(await fs.readFile(file(id), 'utf8'));
 const listed = async (id: string) => (await listLeads(100_000)).find((l) => l.id === id)!;
-const FOLLOWUP_KEYS = ['followup_status', 'followup_updated_at', 'followup_history', 'handled', 'updatedAt'];
+const FOLLOWUP_KEYS = ['followup_status', 'followup_updated_at', 'followup_history', 'handled'];
 const withoutFollowup = (l: Record<string, unknown>) => Object.fromEntries(Object.entries(l).filter(([k]) => !FOLLOWUP_KEYS.includes(k)));
 const transcript = [{ role: 'user' as const, content: '客厅想装遮光帘，电话 949-555-8100' }, { role: 'assistant' as const, content: '好的，我们的顾问会联系您。' }];
 
@@ -212,4 +212,129 @@ test('CSV export has the follow-up status in Chinese', async () => {
   const row = rows.find((x) => x.startsWith(l.id))!;
   assert.equal(row.split(',')[col], '未成交');
   assert.ok(rows.some((x) => x.split(',')[col] === '待跟进'));
+});
+
+/* ---------------- the card time follows the customer, not staff changes ---------------- */
+
+const order = async (...ids: string[]) => (await listLeads(100_000)).map((l) => l.id).filter((id) => ids.includes(id));
+const at = (notify: ReturnType<typeof recorder>['notify'], t: string) => ({ notify, now: () => new Date(t) });
+
+test('staff changes leave the card time and the list order alone; a new customer message moves them', async () => {
+  const r = recorder();
+  const a = (await upsertConversationLead('fu-time-a', { phone: '949-555-8101', room_type: '客厅' }, at(r.notify, '2026-03-01T17:00:00.000Z')))!;
+  const b = (await upsertConversationLead('fu-time-b', { phone: '949-555-8102' }, at(r.notify, '2026-03-01T18:00:00.000Z')))!;
+  assert.deepEqual(await order(a.id, b.id), [b.id, a.id]);
+
+  await setFollowupStatus(a.id, 'contacted');
+  await setFollowupStatus(a.id, 'booked');
+  await markLead(a.id, true);
+  await setLeadStage(a.id, 'consultation_requested');
+  const saved = await raw(a.id);
+  assert.equal(saved.updatedAt, '2026-03-01T17:00:00.000Z', 'the customer\'s time stays in the file');
+  assert.equal((await listed(a.id)).updatedAt, '2026-03-01T17:00:00.000Z');
+  assert.ok(saved.followup_updated_at > saved.updatedAt, 'the staff change keeps its own time');
+  assert.equal(saved.stage_history.at(-1).by, 'staff');
+  assert.deepEqual(await order(a.id, b.id), [b.id, a.id], 'a staff change does not move the lead to the top');
+
+  await upsertConversationLead('fu-time-a', { transcript }, at(r.notify, '2026-03-02T09:00:00.000Z')); // the customer writes again
+  const later = await raw(a.id);
+  assert.equal(later.updatedAt, '2026-03-02T09:00:00.000Z');
+  assert.equal(later.followup_status, 'booked', 'the staff status is kept');
+  assert.deepEqual(await order(a.id, b.id), [a.id, b.id]);
+});
+
+const chatLog = async (conversationId: string, ...times: string[]) => {
+  const f = leads.chatLogFile(conversationId);
+  await fs.mkdir(path.dirname(f), { recursive: true });
+  await fs.writeFile(f, times.map((t) => JSON.stringify({ at: t, user: '…', reply: '…' })).join('\n') + '\n');
+};
+
+test('card times earlier versions moved on staff changes go back to the customer\'s at startup', async () => {
+  const r = recorder();
+  const ids: Record<string, string> = {};
+
+  // follow-up-status version: a status change put the staff time in updatedAt too (as on production now)
+  await upsertConversationLead('fu-time-old-01', { zip: '92618' }, at(r.notify, '2026-03-03T17:00:00.000Z'));
+  ids.followup = (await upsertConversationLead('fu-time-old-01', { phone: '949-555-8111' }, at(r.notify, '2026-03-03T17:05:00.000Z')))!.id;
+  await upsertConversationLead('fu-time-old-01', { transcript }, at(r.notify, '2026-03-03T17:09:00.000Z'));
+  await chatLog('fu-time-old-01', '2026-03-03T17:00:00.000Z', '2026-03-03T17:04:58.000Z', '2026-03-03T17:08:57.000Z');
+  const f1 = await raw(ids.followup);
+  assert.deepEqual(f1.stage_history.map((h: { at: string }) => h.at), ['2026-03-03T17:00:00.000Z', '2026-03-03T17:05:00.000Z']);
+  const staff = '2026-03-04T20:00:00.000Z';
+  await fs.writeFile(file(ids.followup), JSON.stringify({ ...f1, followup_status: 'lost', handled: true, followup_updated_at: staff, followup_history: [{ status: 'lost', at: staff }], updatedAt: staff }));
+
+  // ... or a stage change by staff, no chat log (a form-only lead): the last stage the agent recorded
+  ids.stage = (await upsertConversationLead('fu-time-old-02', { phone: '949-555-8112' }, { ...at(r.notify, '2026-03-05T17:00:00.000Z'), source: 'form', signals: { consultation: true } }))!.id;
+  const f2 = await raw(ids.stage);
+  const stageStaff = '2026-03-05T20:00:00.000Z';
+  await fs.writeFile(file(ids.stage), JSON.stringify({ ...f2, stage: 'handed_to_human', stage_history: [...f2.stage_history, { stage: 'handed_to_human', at: stageStaff, by: 'staff' }], updatedAt: stageStaff }));
+
+  // production version before it (46c7783): 已处理 moved updatedAt and left no other trace
+  await old.upsertConversationLead('fu-time-old-03', { phone: '949-555-8113', room_type: '客厅' }, at(r.notify, '2026-03-07T17:00:00.000Z'));
+  await old.upsertConversationLead('fu-time-old-03', { transcript }, at(r.notify, '2026-03-07T17:20:05.000Z'));
+  await chatLog('fu-time-old-03', '2026-03-07T17:00:00.000Z', '2026-03-07T17:20:00.000Z');
+  ids.handled = (await getConversationLead('fu-time-old-03'))!.id;
+  await old.markLead(ids.handled, true);
+  const click = (await raw(ids.handled)).updatedAt;
+  assert.ok(click > '2026-03-08' && !(await raw(ids.handled)).followup_updated_at, 'as 46c7783 wrote it');
+
+  // ... but there the customer wrote again after the click: that time is theirs and stays
+  await old.upsertConversationLead('fu-time-old-04', { phone: '949-555-8114' }, at(r.notify, '2026-03-08T17:00:00.000Z'));
+  ids.after = (await getConversationLead('fu-time-old-04'))!.id;
+  await old.markLead(ids.after, true);
+  const later = new Date(Date.parse((await raw(ids.after)).updatedAt) + 3_600_000);
+  await old.upsertConversationLead('fu-time-old-04', { transcript }, { notify: r.notify, now: () => later });
+  await chatLog('fu-time-old-04', '2026-03-08T17:00:00.000Z', new Date(later.getTime() - 4_000).toISOString());
+
+  // ... or 已处理 and then 标记为未处理 there: the un-mark click moved it too
+  await old.upsertConversationLead('fu-time-old-06', { phone: '949-555-8117' }, at(r.notify, '2026-03-10T17:00:00.000Z'));
+  await chatLog('fu-time-old-06', '2026-03-10T17:00:00.000Z', '2026-03-10T17:30:00.000Z');
+  ids.unmarked = (await getConversationLead('fu-time-old-06'))!.id;
+  await old.markLead(ids.unmarked, true);
+  await old.markLead(ids.unmarked, false);
+  const unmarkClick = (await raw(ids.unmarked)).updatedAt;
+
+  // the old assistant's 转人工 form, marked 已处理 there: the time the customer sent it
+  ids.form = (await old.saveLead({ conversationId: 'form', source: 'form', reason: 'human', language: 'zh', phone: '9495558115' }, r.notify)).id;
+  await new Promise((done) => setTimeout(done, 5));
+  await old.markLead(ids.form, true);
+  assert.notEqual((await raw(ids.form)).updatedAt, (await raw(ids.form)).createdAt);
+
+  // current version: a customer time after a staff change is left alone
+  ids.current = (await upsertConversationLead('fu-time-old-05', { phone: '949-555-8116' }, at(r.notify, '2026-03-09T17:00:00.000Z')))!.id;
+  await setFollowupStatus(ids.current, 'contacted');
+  await upsertConversationLead('fu-time-old-05', { transcript }, at(r.notify, '2026-03-09T19:00:00.000Z'));
+
+  const before = Object.fromEntries(await Promise.all(Object.entries(ids).map(async ([k, id]) => [k, await fs.readFile(file(id), 'utf8')])));
+  const dry = await leads.restoreCustomerTimes({ dryRun: true });
+  assert.deepEqual([ids.followup, ids.stage, ids.handled, ids.unmarked, ids.form].filter((id) => !dry.ids.includes(id)), [], 'dry run finds them');
+  assert.deepEqual(await order(ids.handled, ids.current), [ids.handled, ids.current], 'before: the 已处理 click sorts first');
+  for (const [k, id] of Object.entries(ids)) assert.equal(await fs.readFile(file(id), 'utf8'), before[k], `dry run writes nothing (${k})`);
+
+  const pushesBefore = r.pushes.length;
+  const requestsBefore = requests.length;
+  const done = await leads.restoreCustomerTimes();
+  assert.ok(!done.ids.includes(ids.after) && !done.ids.includes(ids.current));
+  assert.equal((await listed(ids.followup)).updatedAt, '2026-03-03T17:08:57.000Z', 'the customer\'s last message in the chat log');
+  assert.equal((await raw(ids.followup)).followup_updated_at, staff, 'the staff time stays the follow-up time');
+  assert.equal((await raw(ids.stage)).updatedAt, '2026-03-05T17:00:00.000Z');
+  const h = await raw(ids.handled);
+  assert.equal(h.updatedAt, '2026-03-07T17:20:00.000Z');
+  assert.equal(h.followup_updated_at, click, 'the 已处理 click becomes the follow-up time');
+  assert.deepEqual(h.followup_history, [{ status: 'contacted', at: click }]);
+  assert.equal(h.followup_status, 'contacted');
+  const u = await raw(ids.unmarked);
+  assert.equal(u.updatedAt, '2026-03-10T17:30:00.000Z');
+  assert.equal(u.followup_status, 'pending');
+  assert.equal(u.followup_updated_at, unmarkClick);
+  assert.deepEqual(u.followup_history, [{ status: 'pending', at: unmarkClick }]);
+  assert.equal((await raw(ids.after)).updatedAt, later.toISOString());
+  assert.equal((await raw(ids.form)).updatedAt, (await raw(ids.form)).createdAt);
+  assert.equal((await raw(ids.current)).updatedAt, '2026-03-09T19:00:00.000Z');
+  assert.equal(r.pushes.length, pushesBefore, 'no push');
+  assert.equal(requests.length, requestsBefore, 'nothing sent anywhere');
+
+  assert.deepEqual(await order(ids.handled, ids.current), [ids.current, ids.handled], 'sorted by the customer\'s time again');
+  const again = await leads.restoreCustomerTimes();
+  assert.deepEqual(again.ids.filter((id) => Object.values(ids).includes(id)), [], 'idempotent');
 });

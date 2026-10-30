@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from './config.js';
 import { BUSINESS, KNOWLEDGE } from './knowledge.js';
-import { hasContact, saveLead, type Lead } from './leads.js';
+import { chatLogFile, hasContact, saveLead, type Lead } from './leads.js';
 
 export interface ChatMessage { role: 'user' | 'assistant'; content: string }
 export type Lang = 'zh' | 'en';
@@ -164,7 +164,7 @@ export async function chatTurn(history: ChatMessage[], conversationId: string, d
 
 /** Appends an exchange to the per-conversation transcript for staff review (no IPs, no cookies). */
 export async function logExchange(conversationId: string, user: string, result: ChatResult): Promise<void> {
-  const file = path.join(config.dataDir, 'chat', `${conversationId.replace(/[^a-zA-Z0-9_-]/g, '')}.jsonl`);
+  const file = chatLogFile(conversationId);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.appendFile(file, JSON.stringify({ at: new Date().toISOString(), user, reply: result.reply, language: result.language, lead: result.lead?.id, model: result.model }) + '\n');
 }

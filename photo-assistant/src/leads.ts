@@ -41,6 +41,7 @@ export interface PageContext { url?: string; referrer?: string; utm?: Record<str
 export interface Lead {
   id: string;
   createdAt: string;
+  /** The customer's latest activity (a message or a form); staff changes are timed in followup_history / stage_history instead. */
   updatedAt?: string;
   conversationId: string;
   source: 'chat' | 'form';
@@ -95,6 +96,8 @@ export interface Lead {
 }
 
 const dir = () => path.join(config.dataDir, 'leads');
+/** Per-conversation chat log (logExchange in chat.ts): one line per customer message, with its time. */
+export const chatLogFile = (conversationId: string) => path.join(config.dataDir, 'chat', `${conversationId.replace(/[^a-zA-Z0-9_-]/g, '')}.jsonl`);
 
 export function hasContact(l: Partial<Lead>): boolean {
   return Boolean((l.phone && l.phone.trim()) || (l.email && l.email.trim()) || (l.wechat && l.wechat.trim()));
@@ -187,7 +190,10 @@ async function readLead(id: string): Promise<Lead> {
   return normalizeLead(JSON.parse(await fs.readFile(path.join(dir(), `${path.basename(id)}.json`), 'utf8')) as Lead);
 }
 
-/** Staff edits take the conversation's lock too, so an agent update or a push in flight cannot overwrite them. */
+/**
+ * Staff edits take the conversation's lock too, so an agent update or a push in flight cannot overwrite them.
+ * They leave updatedAt alone: the admin card time and the list order follow the customer, not staff changes.
+ */
 async function staffUpdate(id: string, fn: (lead: Lead) => void): Promise<Lead> {
   const { conversationId } = await readLead(id);
   return withLock(conversationId, async () => {
@@ -214,7 +220,6 @@ export async function markLead(id: string, handled: boolean): Promise<void> {
     if (!handled) applyFollowup(lead, 'pending', at);
     else if (lead.followup_status === 'pending') applyFollowup(lead, 'contacted', at);
     else { lead.handled = true; delete lead.push_pending; }
-    lead.updatedAt = at;
   });
 }
 
@@ -224,7 +229,6 @@ export async function setFollowupStatus(id: string, status: FollowupStatus): Pro
   return staffUpdate(id, (lead) => {
     const at = new Date().toISOString();
     applyFollowup(lead, status, at);
-    lead.updatedAt = at;
   });
 }
 
@@ -239,7 +243,6 @@ export async function setLeadStage(id: string, stage: Stage): Promise<Lead> {
     }
     if (stage !== 'new') lead.notified = [...new Set([...(lead.notified ?? []), stage])];
     if (!pushDue(lead)) delete lead.push_pending;
-    lead.updatedAt = at;
   });
 }
 
@@ -518,6 +521,68 @@ export async function migrateLeads(opts: { dryRun?: boolean; now?: () => Date } 
       lead.notified = [...known];
       delete lead.push_pending;
       out.migrated++;
+      out.ids.push(lead.id);
+      if (!opts.dryRun) await writeLead(lead);
+    });
+  }
+  return out;
+}
+
+/** The time of the customer's last message in the conversation's chat log, if there is one. */
+async function lastChatAt(conversationId: string): Promise<string | undefined> {
+  let text: string;
+  try { text = await fs.readFile(chatLogFile(conversationId), 'utf8'); } catch { return undefined; }
+  let last: string | undefined;
+  for (const line of text.split('\n')) {
+    try { const at = (JSON.parse(line) as { at?: unknown }).at; if (typeof at === 'string' && !Number.isNaN(Date.parse(at)) && (!last || at > last)) last = at; } catch { /* partial line */ }
+  }
+  return last;
+}
+
+/** How updatedAt got a staff time in an earlier version, if it did. */
+function staffTimeKind(l: Lead): 'form' | 'followup' | 'stage' | 'handled' | null {
+  if (!l.updatedAt) return null;
+  // a 转人工-form lead of the old assistant never gets a customer update after it is sent (saveLead only)
+  if (l.lead_source !== SALES_SOURCE) return l.updatedAt !== l.createdAt ? 'form' : null;
+  // the follow-up-status version moved it together with the follow-up time or a staff stage change
+  if (l.updatedAt === l.followup_updated_at) return 'followup';
+  if (l.updatedAt === l.stage_history?.filter((h) => h.by === 'staff').at(-1)?.at) return 'stage';
+  // the version before it (46c7783 and earlier) moved it on 标记为已处理 / 标记为未处理 and kept no follow-up time;
+  // only that version writes handled without one (this version always sets both together)
+  if (l.handled !== undefined && !l.followup_updated_at) return 'handled';
+  return null;
+}
+
+/** A 已处理 / 未处理 click this close to the customer's last message cannot be told from the lead update right after a reply: kept. */
+const CLICK_SLACK_MS = 10 * 60_000;
+
+/**
+ * Startup repair, idempotent and never pushes: earlier versions moved updatedAt (the admin card time and the
+ * list order) when staff changed the follow-up status or the stage, or clicked 已处理. Such a time goes back
+ * to the customer's: the last message in the chat log, the last stage the agent recorded, or creation,
+ * whichever is latest. A 已处理 / 未处理 click left no other trace, so it becomes the lead's follow-up time.
+ * Old 转人工-form leads read as the time the form was sent. `dryRun` only counts.
+ */
+export async function restoreCustomerTimes(opts: { dryRun?: boolean } = {}): Promise<{ checked: number; restored: number; ids: string[] }> {
+  const out = { checked: 0, restored: 0, ids: [] as string[] };
+  for (const l of await listLeads(100_000)) {
+    out.checked++;
+    if (!staffTimeKind(l)) continue;
+    await withLock(l.conversationId, async () => {
+      const lead = await readLead(l.id);
+      const kind = staffTimeKind(lead);
+      if (!kind) return;
+      const staffAt = lead.updatedAt!;
+      const customer = kind === 'form' ? lead.createdAt
+        : [lead.createdAt, await lastChatAt(lead.conversationId), ...(lead.stage_history ?? []).filter((h) => h.by === 'agent').map((h) => h.at)]
+          .filter((t): t is string => Boolean(t)).sort().at(-1)!;
+      if (kind === 'handled') {
+        if (Date.parse(staffAt) - Date.parse(customer) <= CLICK_SLACK_MS) return;
+        lead.followup_updated_at = staffAt;
+        lead.followup_history ??= [{ status: lead.followup_status!, at: staffAt }];
+      }
+      lead.updatedAt = customer;
+      out.restored++;
       out.ids.push(lead.id);
       if (!opts.dryRun) await writeLead(lead);
     });

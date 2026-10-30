@@ -23,7 +23,7 @@
   - 联系方式和地区：name、phone、email、wechat、contact_preference（客户自己说的首选方式：phone 打电话 / sms 发短信 / email / wechat）、zip（以及 zip_in_area）。
   - 项目信息：room_type、window_count、approximate_size、primary_need、motorization_interest、budget_range（客户原话）。
   - 推荐与意向：products_recommended（只保留知识库中的产品名）、consultation_interest、preferred_time。
-  - 来源与记录：lead_source = `AI Sales Agent`、summary（中文摘要）、createdAt / updatedAt、stage_history、page（来源页面和 UTM，不含其他 URL 参数）、transcript。
+  - 来源与记录：lead_source = `AI Sales Agent`、summary（中文摘要）、createdAt / updatedAt（客户最近一次发消息或提交表单的时间，员工改跟进状态、改阶段不改它）、stage_history、page（来源页面和 UTM，不含其他 URL 参数）、transcript。
 - **字段从哪来**：每次 AI 回复发出后，后台再做一次结构化提取，不会拖慢客户看到回复。
   - 电话、邮箱、微信号、ZIP 必须是客户自己输入过的，并通过格式校验；AI 说过的号码（比如店里电话）不会被当成客户的。微信号还要求客户提到过"微信/WeChat"、整词匹配，而且不能等于客户姓名；"微信就是手机号"这种写法也接受。
   - 首选联系方式只在客户自己说了（"发短信给我""加我微信就行""打电话"）才记录；只留了一种联系方式不算"首选"。首选方式缺对应号码时，推送和摘要会注明（例如"首选短信，但没留电话"）。
@@ -62,6 +62,10 @@
   - **跟进状态**（取代以前的"标记为已处理"）：待跟进 → 已联系 → 已预约 → 已报价 → 成交 / 未成交，由员工在每张卡片底部的「跟进状态」下拉框手动设置，可以改到任何状态、往回改也可以。
     - 和"阶段"是两回事：阶段记录客户在对话里表达到哪一步（AI 自动往前走），跟进状态记录你们销售做到哪一步（只由员工改，AI 更新线索不会改它）。
     - 新线索默认"待跟进"；卡片金色边框、左侧"N 待跟进"都按跟进状态算。"成交""未成交"标为"已结束"，仍可改回。每次改动记在卡片上的"跟进："一行（时间），刷新不会丢。
+    - 卡片右上角的「客户最近活动」是客户最近一次发消息或提交表单的时间，线索列表按它从新到旧排；改跟进状态、改阶段不会改变它，也不会让卡片跳到最上面（员工改动的时间记在"跟进："和阶段记录里）。以前的版本改跟进状态、改阶段、点"标记为已处理 / 标记为未处理"都会改这个时间，新版本启动时会一次性改回客户的时间（不推送，日志里有 `lead card times restored to the customer's: N of M`）：
+      - 销售线索：用对话记录（`data/chat/<对话>.jsonl`）里客户最后一条消息的时间、AI 最后一次记录阶段的时间、创建时间三者中最晚的一个。
+      - 以前点过"标记为已处理 / 标记为未处理"的销售线索，最后一次点击的时间改记为跟进时间（卡片上显示"跟进：已联系 ……"或"跟进：待跟进 ……"）。如果点击时间离客户最后一条消息不到 10 分钟，分不清是谁的时间，就保持不变。
+      - 旧版 AI 客服"转人工"表单的线索：显示客户提交表单的时间。
     - 改跟进状态只保存在后台：不发短信、邮件、微信，也不推送。和以前"标记已处理"一样，改到"待跟进"以后的状态会停止这条线索没送达的推送重试；改回"待跟进"不会补发推送。
     - 旧线索不需要升级：以前标过"已处理"的显示"已联系"，其余显示"待跟进"；对话、阶段和其他字段都不变。"已处理"字段继续保留并跟着跟进状态走（待跟进 = 未处理，其他 = 已处理），所以回滚到上一版本也能正常显示。
     - 接口：`POST /api/leads/:id/followup`，body `{"status": "pending|contacted|booked|quoted|won|lost"}`；旧的 `POST /api/leads/:id/handled` 仍可用（已处理 = 已联系，未处理 = 待跟进）。
@@ -86,7 +90,7 @@
   - `photo-assistant/test/sales-e2e.test.ts`：HTTP、真实 SDK 和本地 API 测试替身。
   - `photo-assistant/test/fake-anthropic.ts`：只用于测试，回复都带 `[test double]` 标记，不是 AI 回答。
   - `photo-assistant/test/lead-contact.test.ts`：已留联系方式、推送失败与重试、微信与首选方式、限流访客地址。
-  - `photo-assistant/test/lead-followup.test.ts`：跟进状态的默认值、旧线索兼容、保存、不推送不联系客户、AI 更新不覆盖、回滚、CSV。
+  - `photo-assistant/test/lead-followup.test.ts`：跟进状态的默认值、旧线索兼容、保存、不推送不联系客户、AI 更新不覆盖、回滚、CSV、员工改动不改卡片时间和排序。
   - `photo-assistant/test/lead-migration.test.ts`：用线上版本（main 46c7783）原样写出的线索测试部署升级、不重复推送、不误变"转人工"、只留联系方式不变高意向，以及回滚到线上版本和再次部署。`test/fixtures/leads-46c7783.ts` 是线上版本线索代码的冻结副本，只给这个测试用。
   - `theme/tests/widget_check.py`：离线渲染聊天组件，检查各尺寸下表单字段和提交按钮可见、防重复提交、隐私提示（需要 Playwright）。
 
